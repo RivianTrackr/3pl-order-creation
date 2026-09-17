@@ -24,8 +24,7 @@ def test_happy_path_records_a_timeline(env):  # noqa: F811
     proc, db, *_ = env([make_po()])
     proc.run_id = db.start_run("scheduled", None, False, None)
     proc.run(NOW)
-    assert events(db) == ["po.loaded", "po.matched", "order.created", "stock.checked", "order.completed",
-                          "syncore.comment_updated", "po.done"]
+    assert events(db) == ["po.loaded", "po.matched", "order.created", "stock.checked", "order.completed", "po.done"]
     created = next(e for e in db.list_events(po_id=900) if e["event"] == "order.created")
     assert created["run_id"] == proc.run_id and created["reference"] == "12345-3"
     assert json.loads(created["data"])["payload"]["referenceNum"] == "12345-3"
@@ -130,3 +129,12 @@ def test_admin_log_pages(tmp_path):
     assert "Timeline" in po and "order.preview" in po
     assert client.get("/po/424242").status_code == 404
     assert re.search(r'href="/logs"', client.get("/").text)
+
+
+def test_console_output_is_redacted_too(caplog):
+    logger = logging.getLogger("tplsync.test.console")
+    logger.addFilter(redact_filter := __import__("tplsync.runlog", fromlist=["RedactingFilter"]).RedactingFilter())
+    with caplog.at_level(logging.INFO):
+        logger.info('signed in: {"access_token":"eyJabc.def","token_type":"Bearer"}')
+    assert "eyJabc.def" not in caplog.text and "***" in caplog.text
+    logger.removeFilter(redact_filter)

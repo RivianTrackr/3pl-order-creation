@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     skip_reason    TEXT,
     order_id       INTEGER,         -- 3PL Central transaction number
     completion     TEXT,            -- completed | open_short
-    logged         INTEGER NOT NULL DEFAULT 0,
     attempts       INTEGER NOT NULL DEFAULT 0,
     last_error     TEXT,
     alerted_error  TEXT,

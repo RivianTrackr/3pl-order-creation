@@ -8,7 +8,9 @@ through resumes on the next run without creating a duplicate order:
   2. filter: the PO's vendor matches the setting, it has inventory SKUs, and its client is set up
   3. create the 3PL order (or find an existing one with the same reference)
   4. stock check -> Complete, or leave Open and email an alert
-  5. append the transaction number to the PO's Critical Comments
+
+Nothing is written back to Syncore: the transaction number is recorded here and
+shown in the admin, on the PO's timeline and in the alerts.
 
 Every step is written to the events table so the admin Logs page can show a
 timeline per PO and per run.
@@ -23,6 +25,7 @@ from typing import Callable, Dict, Optional
 from . import carriers as carrier_match
 from . import clientmatch
 from . import mapping
+from . import skus
 from .config import Settings, TplClient
 from .db import Database, client_missing, utcnow
 from .http import ApiError
@@ -70,7 +73,7 @@ class Processor:
             lambda creds: TplCentralClient(settings.tpl_base_url, creds, settings.tpl_user_login))
         self._tpl_clients: Dict[str, TplCentralClient] = {}
         self._carriers = None
-        self._known_skus: Dict[tuple, bool] = {}
+        self._items: Dict[int, list] = {}
         if getattr(notifier, "recorder", None) is None:
             notifier.recorder = self._record_email
 
@@ -226,23 +229,13 @@ class Processor:
                 self.event(row["po_id"], row["job_id"], ref, "error", "order.recheck_failed",
                            f"Could not re-check 3PL order {order_id}: {exc}")
 
-    def unknown_skus(self, tpl: TplCentralClient, lines) -> list:
-        """SKUs on the PO that this client doesn't have as items in 3PL Central."""
-        unknown = []
-        for sku in lines:
-            key = (tpl.creds.customer_id, sku.casefold())
-            if key in self._known_skus:
-                continue     # only SKUs that exist are remembered, so a new item is picked up straight away
-            try:
-                found = tpl.find_item(sku) is not None
-            except ApiError as exc:
-                log.warning("Could not check SKU %s in 3PL Central (HTTP %s); leaving it to the order", sku, exc.status)
-                found = True
-            if found:
-                self._known_skus[key] = True
-            else:
-                unknown.append(sku)
-        return unknown
+    def client_items(self, tpl: TplCentralClient) -> list:
+        """The client's items in 3PL Central, fetched once per run."""
+        if tpl.creds.customer_id not in self._items:
+            self._items[tpl.creds.customer_id] = tpl.list_items()
+            log.info("Customer %s has %d item(s) in 3PL Central", tpl.creds.customer_id,
+                     len(self._items[tpl.creds.customer_id]))
+        return self._items[tpl.creds.customer_id]
 
     def handle(self, po_id: int, job_id: int, last_modified: Optional[str], now: datetime,
                force: bool = False) -> None:
@@ -320,8 +313,7 @@ class Processor:
             if not mapping.is_vendor(po, self.s.vendor_name):
                 raise SkipPO(f"vendor is {supplier!r}, not {self.s.vendor_name!r}", ref)
         if not lines and order_id is None:
-            skus = mapping.po_skus(po)
-            raise SkipPO(f"no SKUs match {self.s.sku_pattern!r}", ref, {"skus_on_po": skus})
+            raise SkipPO(f"no SKUs match {self.s.sku_pattern!r}", ref, {"skus_on_po": mapping.po_skus(po)})
 
         job = self.syncore.get_job(job_id)
         client = job.get("client") or {}
@@ -349,6 +341,18 @@ class Processor:
             raise ClientNotReady(f"{creds.name} is paused on the Clients page.")
         tpl = self.tpl(creds)
 
+        po_lines = dict(lines)
+        try:
+            lines, renames = skus.resolve_lines(lines, self.client_items(tpl), creds.name)
+        except skus.SkuMatchError as exc:
+            self.event(po_id, job_id, ref, "error", "sku.unmatched", str(exc), {"ordered": po_lines})
+            raise RuntimeError(f"{exc} No order was created. Add the item in 3PL Central, or fix the SKU on the "
+                               f"Syncore PO.")
+        if renames:
+            self.event(po_id, job_id, ref, "info", "sku.matched",
+                       "PO SKUs matched to 3PL Central items by size: "
+                       + ", ".join(f"{a} -> {b}" for a, b in renames.items()), {"matched": renames})
+
         try:
             routing = carrier_match.resolve_routing(
                 po.get("ship_via"), self.s.shipping_map, self.carrier_list(tpl), self.s.tpl_billing_code,
@@ -367,15 +371,6 @@ class Processor:
                    {"job": {k: job.get(k) for k in ("id", "status", "job_class", "client", "store")},
                     "routing": payload.get("routingInfo"), "service": routing.service_description,
                     "routing_source": routing.source, "billing_code": payload.get("billingCode")})
-
-        unknown = self.unknown_skus(tpl, lines)
-        if unknown:
-            self.event(po_id, job_id, ref, "error", "sku.unknown",
-                       f"{', '.join(unknown)} {'is' if len(unknown) == 1 else 'are'} not set up as {creds.name} "
-                       f"item(s) in 3PL Central", {"unknown_skus": unknown, "ordered": lines})
-            raise RuntimeError(
-                f"{', '.join(unknown)} {'is' if len(unknown) == 1 else 'are'} not an item for {creds.name} in "
-                f"3PL Central, so no order was created. Add the item, or fix the SKU on the Syncore PO.")
 
         if dry:
             existing = tpl.find_existing_order(ref)
@@ -434,20 +429,6 @@ class Processor:
                 self.db.upsert(po_id, job_id, completion=completion)
                 self.stats["completed"] += 1
                 self.event(po_id, job_id, ref, "info", "order.completed", message, {"order_id": order_id})
-
-        # Step 5: transaction number -> Syncore PO Critical Comments
-        if not (rec and rec["logged"]):
-            new_comments = mapping.append_transaction_comment(po.get("critical_comments"), order_id,
-                                                              left_open=completion == "open_short")
-            if new_comments is not None:
-                self.syncore.update_critical_comments(job_id, po_id, new_comments)
-                self.event(po_id, job_id, ref, "info", "syncore.comment_updated",
-                           f"Added transaction {order_id} to the PO's Critical Comments",
-                           {"before": po.get("critical_comments"), "after": new_comments})
-            else:
-                self.event(po_id, job_id, ref, "info", "syncore.comment_present",
-                           f"Critical Comments already mention transaction {order_id}")
-            self.db.upsert(po_id, job_id, logged=1)
 
         self.db.upsert(po_id, job_id, state="done", last_error=None)
         self.event(po_id, job_id, ref, "info", "po.done",

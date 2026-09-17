@@ -122,6 +122,19 @@ class TplCentralClient:
                     return int(ro.get("orderId") or ro.get("OrderId")), field
         return None
 
+    def list_items(self) -> List[dict]:
+        """Every item set up for this customer (sku, description)."""
+        items, page = [], 1
+        while True:
+            data = self._call("GET", f"/customers/{self.creds.customer_id}/items",
+                              params={"pgsiz": 100, "pgnum": page}).json()
+            batch = (data.get("_embedded") or {}).get("http://api.3plCentral.com/rels/customers/item") \
+                or data.get("ResourceList") or []
+            items += [i for i in batch if not (i.get("readOnly") or {}).get("deactivated")]
+            if len(batch) < 100:
+                return items
+            page += 1
+
     def find_item(self, sku: str) -> Optional[dict]:
         """The customer's item with that SKU, if it exists in 3PL Central."""
         resp = self._call("GET", f"/customers/{self.creds.customer_id}/items",

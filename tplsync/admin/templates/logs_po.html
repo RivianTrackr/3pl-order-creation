@@ -28,7 +28,6 @@
     </dd></div>
     <div><dt>3PL transaction</dt><dd class="mono">{{ record.order_id or '-' }}</dd></div>
     <div><dt>Syncore client group</dt><dd class="mono">{{ record.client_id or '-' }}</dd></div>
-    <div><dt>Critical Comments updated</dt><dd>{{ 'Yes' if record.logged else 'No' }}</dd></div>
     <div><dt>Attempts</dt><dd>{{ record.attempts }}</dd></div>
     <div><dt>First seen</dt><dd>{{ localtime(record.first_seen) }}</dd></div>
     <div><dt>Last updated</dt><dd>{{ localtime(record.updated_at) }}</dd></div>

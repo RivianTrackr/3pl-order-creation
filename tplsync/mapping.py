@@ -214,20 +214,3 @@ def find_shortages(lines: Dict[str, float], order: dict, summaries: List[dict],
         if have < qty:
             shortages.append({"sku": sku, "ordered": qty, "available": have})
     return shortages
-
-
-COMMENT_LIMIT = 400
-
-
-def append_transaction_comment(existing: Optional[str], order_id: int, left_open: bool) -> Optional[str]:
-    """New critical_comments value, or None if the transaction is already noted."""
-    existing = (existing or "").strip()
-    tag = f"3PL Txn #{order_id}"
-    if tag in existing:
-        return None
-    marker = tag + (" (OPEN - short inventory)" if left_open else "")
-    if not existing:
-        return marker
-    sep = " | "
-    room = COMMENT_LIMIT - len(sep) - len(marker)
-    return existing[:room].rstrip() + sep + marker

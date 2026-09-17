@@ -37,7 +37,8 @@ def request(session: requests.Session, service: str, method: str, url: str,
     kwargs.setdefault("timeout", TIMEOUT)
     attempts = retries if method.upper() == "GET" else 1
     shown = url + ("?" + urlencode(kwargs["params"]) if kwargs.get("params") else "")
-    if method.upper() != "GET" and kwargs.get("json") is not None:
+    quiet = "authserver" in url.lower() or url.lower().endswith("/token")   # never log sign-in bodies
+    if method.upper() != "GET" and kwargs.get("json") is not None and not quiet:
         log.info("%s %s %s request body: %s", service, method, shown, json.dumps(kwargs["json"])[:8000])
     for attempt in range(1, attempts + 1):
         started = time.monotonic()
@@ -52,7 +53,7 @@ def request(session: requests.Session, service: str, method: str, url: str,
             log.log(logging.INFO if resp.status_code < 400 else logging.WARNING,
                     "%s %s %s -> HTTP %s (%d ms)", service, method, shown, resp.status_code, elapsed)
             if resp.status_code < 400:
-                if method.upper() != "GET" and resp.content:
+                if method.upper() != "GET" and resp.content and not quiet:
                     log.info("%s %s response body: %s", service, method, resp.text[:4000])
                 return resp
             if resp.status_code not in RETRY_STATUSES or attempt == attempts:

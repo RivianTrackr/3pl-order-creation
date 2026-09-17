@@ -17,10 +17,11 @@ For each PO created after go-live:
    - The reference number is `<job number>-<PO number>`, e.g. `12345-3`. If the client already has an order with that reference number **or** PO number, it's reused instead of creating a second one.
    - Shipping comes from each PO: the ship-to address, the customer email and phone from Critical Comments, and the carrier and service from Ship Via. The Ship Via is matched against the warehouse's carrier list in 3PL Central ("USPS Priority Mail" becomes carrier `USPS` plus that service's code). If there's no confident match, the order is **not** created; it's reported as an error, alerted, and retried after an override is added. Ship Via, in-hand date, FOB and shipping instructions also go into the order's shipping notes.
 5. **Checks the SKUs and inventory.**
-   - A SKU that isn't an item for that client in 3PL Central stops the order before it's created, with an alert naming the SKU.
+   - Each PO SKU is matched to the client's item in 3PL Central: exactly when the SKU is the same, otherwise by base SKU plus size, since Syncore writes the size into the SKU (`ABC123-2XL`) where 3PL Central uses a variant code with the size in the description (`ABC123-15570`, "... - XXL"). Sizes like 2XL/XXL and M/Medium are treated as the same.
+   - A SKU with no clear match stops the order before it's created, with an alert naming the SKU and the sizes that do exist.
    - If every line has enough stock, the order is **Completed**.
    - If any line is short, the order is left **Open**, and an alert email lists the short SKUs. Every later run re-checks it and completes it once stock arrives (switch off with "Complete open orders when stock arrives").
-6. **Records the Transaction Number** by appending `3PL Txn #<id>` to the Syncore PO's **Critical Comments**. Syncore's API has no Job Log endpoint.
+6. **Records the Transaction Number** (the 3PL Central order id) against the PO here: on the dashboard, in the PO's timeline and in any alert about it. Nothing is written back to Syncore.
 
 Once a day (after the hour set in Settings) a **summary email** goes out: orders created and completed, anything waiting for stock, anything needing attention, and clients still to be set up. The same run makes a **backup** of the database, kept for 14 days by default.
 
@@ -72,7 +73,6 @@ Logs: `journalctl -u tplsync -f` (runs) and `journalctl -u tplsync-admin -f` (UI
 ## First live test
 
 Some API behaviour is documented but hasn't been tested against the live systems yet. Before starting the timer, process one test PO and check:
-- **Critical Comments:** the transaction number was appended, and the PO's other fields (ship-to, in-hand date, instructions) are **unchanged**. The Syncore docs don't say whether their update call keeps fields that aren't sent.
 - **Completion:** the 3PL order shows as Completed, not Open, and was not confirmed or shipped.
 - **Stock check:** it reflects real stock. Try a PO with more quantity than is on hand.
 

@@ -81,15 +81,6 @@ def test_find_shortages():
     ]
 
 
-def test_append_transaction_comment():
-    assert mapping.append_transaction_comment("", 555, False) == "3PL Txn #555"
-    assert mapping.append_transaction_comment("Call first", 555, True) == \
-        "Call first | 3PL Txn #555 (OPEN - short inventory)"
-    assert mapping.append_transaction_comment("Call first | 3PL Txn #555", 555, False) is None
-    long = mapping.append_transaction_comment("x" * 400, 555, False)
-    assert len(long) <= 400 and long.endswith("3PL Txn #555")
-
-
 def test_sku_in_comment_description_takes_quantity_from_product_line():
     # The layout Syncore POs use: the inventory SKU is a comment line under the product line
     items = [

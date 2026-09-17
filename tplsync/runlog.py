@@ -19,6 +19,20 @@ def redact(text: str) -> str:
     return text
 
 
+class RedactingFilter(logging.Filter):
+    """Masks secrets in everything that reaches a handler, including the console."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:  # noqa: BLE001
+            return True
+        clean = redact(message)
+        if clean != message:
+            record.msg, record.args = clean, ()
+        return True
+
+
 class DatabaseLogHandler(logging.Handler):
     """Writes log records for one run. Uses its own connection so log writes never
     commit, or get caught up in, the processor's transactions."""

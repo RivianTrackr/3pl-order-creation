@@ -34,8 +34,6 @@ class FakeSyncore:
     def __init__(self, pos, client_id=1213):
         self.pos = {p["id"]: p for p in pos}
         self.client_id = client_id
-        self.comment_updates = []
-        self.fail_comment = False
 
     def search_purchase_orders(self, created_from, modified_from):
         return [{"id": p["id"], "job_number": p["job_number"], "last_modified_date": p["last_modified_date"]}
@@ -55,11 +53,6 @@ class FakeSyncore:
     def list_client_groups(self):
         return []
 
-    def update_critical_comments(self, job_id, po_id, comments):
-        if self.fail_comment:
-            raise ApiError("Syncore", "PUT", "/po", 500, "boom")
-        self.comment_updates.append((po_id, comments))
-        self.pos[po_id]["critical_comments"] = comments
 
 
 class FakeTpl:
@@ -69,15 +62,18 @@ class FakeTpl:
         self.completed = []
         self.existing = {}
         self.fail_create = None
-        self.items = {"SHIRT-INV", "JI-OD-7", "TEE-INV-M"}
+        self.fail_complete = False
+        self.items = [{"sku": "SHIRT-INV", "description": "Tee - Navy"},
+                      {"sku": "JI-OD-7", "description": "Notebook"},
+                      {"sku": "TEE-INV-15570", "description": "Tee - Heather - XXL"}]
         self.creds = CLIENT
 
     def find_existing_order(self, ref):
         order_id = self.existing.get(ref)
         return (order_id, "reference number") if order_id else None
 
-    def find_item(self, sku):
-        return {"sku": sku} if sku.casefold() in {s.casefold() for s in self.items} else None
+    def list_items(self):
+        return self.items
 
     def create_order(self, payload):
         if self.fail_create:
@@ -95,10 +91,13 @@ class FakeTpl:
                 "_embedded": {"http://api.3plCentral.com/rels/orders/item": items}}, 'W/"1"'
 
     def stock_for_order(self, order_id):
-        return [{"itemIdentifier": {"sku": sku}, "available": self.available, "facilityId": 1}
-                for sku in self.items]
+        return [{"itemIdentifier": {"sku": i["sku"]}, "available": self.available, "facilityId": 1}
+                for i in self.items]
 
     def complete_order(self, order_id):
+        if self.fail_complete:
+            self.fail_complete = False
+            raise ApiError("3PL Central", "POST", f"/orders/{order_id}/completer", 500, "server error")
         self.completed.append(order_id)
 
     def get_carriers(self):
@@ -150,13 +149,12 @@ def test_happy_path_creates_completes_and_logs(env):
 
     assert len(tpl.created) == 1 and tpl.created[0]["referenceNum"] == "12345-3"
     assert tpl.completed == [5000]
-    assert syncore.comment_updates == [(900, "Call first | 3PL Txn #5000")]
     assert notifier.sent == []
     row = db.get(900)
-    assert (row["state"], row["order_id"], row["completion"], row["logged"]) == ("done", 5000, "completed", 1)
+    assert (row["state"], row["order_id"], row["completion"]) == ("done", 5000, "completed")
 
     proc.run(NOW)  # second run is a no-op
-    assert len(tpl.created) == 1 and len(syncore.comment_updates) == 1
+    assert len(tpl.created) == 1 and tpl.completed == [5000]
 
 
 def test_short_inventory_leaves_open_and_alerts(env):
@@ -165,7 +163,6 @@ def test_short_inventory_leaves_open_and_alerts(env):
 
     assert tpl.completed == []
     assert db.get(900)["completion"] == "open_short"
-    assert syncore.comment_updates[0][1] == "3PL Txn #5000 (OPEN - short inventory)"
     assert len(notifier.sent) == 1
     subject, lines = notifier.sent[0]
     assert "left Open" in subject and any("SHIRT-INV: ordered 10, available 3" in l for l in lines)
@@ -214,13 +211,13 @@ def test_missing_client_credentials_alerts_once(env):
 
 def test_failure_after_create_resumes_without_duplicate(env):
     proc, db, syncore, tpl, notifier = env([make_po()])
-    syncore.fail_comment = True
+    tpl.fail_complete = True
     proc.run(NOW)
     assert db.get(900)["state"] == "error" and db.get(900)["order_id"] == 5000
+    assert tpl.completed == []
 
-    syncore.fail_comment = False
     proc.run(NOW)
-    assert len(tpl.created) == 1 and tpl.completed == [5000]
+    assert len(tpl.created) == 1 and tpl.completed == [5000]     # no second order
     assert db.get(900)["state"] == "done"
 
 
@@ -243,7 +240,7 @@ def test_gives_up_after_max_attempts(env):
 def test_dry_run_changes_nothing(env):
     proc, db, syncore, tpl, notifier = env([make_po()], dry_run=True, settle=15)
     proc.run(NOW)
-    assert tpl.created == [] and syncore.comment_updates == [] and notifier.sent == []
+    assert tpl.created == [] and notifier.sent == []
     assert db.get(900) is None
 
 
@@ -299,10 +296,10 @@ def test_sku_that_is_not_an_item_in_3pl_stops_the_order(env):
     proc.run(NOW)
     assert tpl.created == []
     assert "not an item for Client Inc" in db.get(900)["last_error"]
-    assert "sku.unknown" in [e["event"] for e in db.list_events(po_id=900)]
+    assert "sku.unmatched" in [e["event"] for e in db.list_events(po_id=900)]
     assert len(notifier.sent) == 1
 
-    tpl.items.add("MISSING-INV")             # warehouse adds the item
+    tpl.items.append({"sku": "MISSING-INV", "description": "New item"})   # warehouse adds the item
     proc.run(NOW)
     assert len(tpl.created) == 1 and db.get(900)["state"] == "done"
 
@@ -314,3 +311,11 @@ def test_existing_order_with_the_same_po_number_is_not_duplicated(env):
     assert tpl.created == []
     [found] = [e for e in db.list_events(po_id=900) if e["event"] == "order.found_existing"]
     assert "no second order was created" in found["message"]
+
+
+def test_po_sku_with_a_size_is_matched_to_the_3pl_item(env):
+    proc, db, syncore, tpl, _ = env([make_po(sku="TEE-INV-2XL", qty=4)])
+    proc.run(NOW)
+    assert tpl.created[0]["orderItems"] == [{"itemIdentifier": {"sku": "TEE-INV-15570"}, "qty": 4}]
+    [matched] = [e for e in db.list_events(po_id=900) if e["event"] == "sku.matched"]
+    assert "TEE-INV-2XL -> TEE-INV-15570" in matched["message"]

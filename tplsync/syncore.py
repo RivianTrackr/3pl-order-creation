@@ -83,9 +83,3 @@ class SyncoreClient:
             if int(po.get("id", 0)) == int(po_id):
                 return po
         return None
-
-    def update_critical_comments(self, job_id: int, po_id: int, comments: str) -> None:
-        request(self.session, "Syncore", "PUT",
-                f"{self.base_url}/jobs/{job_id}/purchaseorders/{po_id}",
-                json={"critical_comments": comments})
-        self._job_po_cache.pop(job_id, None)

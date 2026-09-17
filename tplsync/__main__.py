@@ -27,7 +27,7 @@ from .crypto import generate_key
 from .db import Database, utcnow
 from .notify import Notifier
 from .processor import Processor
-from .runlog import DatabaseLogHandler
+from .runlog import DatabaseLogHandler, RedactingFilter
 from .syncore import SyncoreClient
 
 
@@ -104,6 +104,8 @@ def main(argv=None) -> int:
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(RedactingFilter())
 
     if args.command == "gen-keys":
         print(f"TPLSYNC_ENCRYPTION_KEY={generate_key()}")
