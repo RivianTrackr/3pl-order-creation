@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Logs{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1 class="page-title">Logs</h1>
+    <p class="page-subtitle">Every run, every step taken on each PO, and every alert email. Kept for {{ retention }} days. Times in {{ tz_name }}.</p>
+  </div>
+</header>
+
+<nav class="tabs" aria-label="Log type">
+  <a href="/logs?tab=runs" class="{{ 'active' if tab == 'runs' }}"><i class="fa-solid fa-play"></i> Runs</a>
+  <a href="/logs?tab=events" class="{{ 'active' if tab == 'events' }}"><i class="fa-solid fa-timeline"></i> PO events</a>
+  <a href="/logs?tab=emails" class="{{ 'active' if tab == 'emails' }}"><i class="fa-solid fa-envelope"></i> Emails</a>
+</nav>
+
+<section class="card">
+  <form method="get" action="/logs" class="filter-bar">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    {% if tab == 'runs' %}
+      <select class="input" name="kind" aria-label="Run type">
+        <option value="">All types</option>
+        {% for k, label in [('scheduled', 'Scheduled'), ('manual', 'Run now'), ('test', 'PO test'), ('clients', 'Client matching')] %}
+        <option value="{{ k }}" {{ 'selected' if kind == k }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <select class="input" name="status" aria-label="Status">
+        <option value="">Any status</option>
+        {% for k, label in [('ok', 'OK'), ('failed', 'Failed'), ('running', 'Running'), ('interrupted', 'Interrupted')] %}
+        <option value="{{ k }}" {{ 'selected' if status == k }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <label class="checkbox"><input type="checkbox" name="show_quiet" value="true" {{ 'checked' if show_quiet }}> Include scheduled runs with nothing to do</label>
+    {% elif tab == 'events' %}
+      <input class="input" type="search" name="q" value="{{ q }}" placeholder="Reference, PO id, job # or text" aria-label="Search">
+      <select class="input" name="level" aria-label="Level">
+        <option value="">All levels</option>
+        {% for k, label in [('error', 'Errors'), ('warning', 'Warnings'), ('info', 'Info')] %}
+        <option value="{{ k }}" {{ 'selected' if level == k }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    {% else %}
+      <select class="input" name="status" aria-label="Status">
+        <option value="">Any status</option>
+        {% for k, label in [('sent', 'Sent'), ('failed', 'Failed'), ('dry_run', 'Dry run')] %}
+        <option value="{{ k }}" {{ 'selected' if status == k }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    {% endif %}
+    <button class="btn btn-secondary"><i class="fa-solid fa-filter"></i> Filter</button>
+  </form>
+
+  {% if not rows %}
+  <div class="empty-state">
+    <i class="fa-solid fa-scroll"></i>
+    <h3>No entries</h3>
+    <p>{{ 'Runs appear here after the scheduler, Run now or a PO test starts one.' if tab == 'runs' else 'Nothing matches these filters.' }}</p>
+  </div>
+  {% elif tab == 'runs' %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Run</th><th>Started</th><th>Type</th><th>Status</th><th>Result</th><th>Duration</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="row-link">
+          <td class="mono"><a href="/logs/runs/{{ r.id }}">#{{ r.id }}</a></td>
+          <td class="nowrap">{{ localtime(r.started_at) }}</td>
+          <td class="nowrap">
+            {{ m.run_kind(r.kind) }}{% if r.dry_run %} <span class="badge badge-muted">Dry run</span>{% endif %}
+            {% if r.target %}<div class="cell-meta">{{ r.target }}</div>{% endif %}
+            {% if r.triggered_by %}<div class="cell-meta">by {{ r.triggered_by }}</div>{% endif %}
+          </td>
+          <td>{{ m.run_status(r.status, r.summary_obj) }}</td>
+          <td class="cell-detail">{% if r.error %}<span class="text-error">{{ r.error }}</span>{% else %}{{ m.summary(r.summary_obj) }}{% endif %}</td>
+          <td class="nowrap">{{ r.duration }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif tab == 'events' %}
+  <div class="card-body">{{ m.event_list(rows, show_po=True) }}</div>
+  {% else %}
+  <div class="card-body">{{ m.email_list(rows) }}</div>
+  {% endif %}
+
+  {% if page > 1 or has_next %}
+  <nav class="pager" aria-label="Pages">
+    {% set base = '/logs?tab=' ~ tab ~ '&status=' ~ status ~ '&kind=' ~ kind ~ '&level=' ~ level ~ '&q=' ~ (q | urlencode) ~ ('&show_quiet=true' if show_quiet else '') %}
+    {% if page > 1 %}<a class="btn btn-secondary btn-sm" href="{{ base }}&page={{ page - 1 }}"><i class="fa-solid fa-chevron-left"></i> Newer</a>{% endif %}
+    <span class="muted small">Page {{ page }}</span>
+    {% if has_next %}<a class="btn btn-secondary btn-sm" href="{{ base }}&page={{ page + 1 }}">Older <i class="fa-solid fa-chevron-right"></i></a>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+{% endblock %}

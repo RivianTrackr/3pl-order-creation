@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Ship Via{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1 class="page-title">Ship Via</h1>
+    <p class="page-subtitle">Each order ships the way its PO says. The PO's <strong>Ship Via</strong> is matched to the warehouse's carrier and service codes in 3PL Central, e.g. “USPS Priority Mail” becomes USPS with that service's code. If there's no confident match, the order isn't created and you get an alert.</p>
+  </div>
+  <form method="post" action="/shipping/refresh-carriers">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <button class="btn {{ 'btn-secondary' if carriers else 'btn-primary' }}" {{ 'disabled' if not has_client }} data-loading-text="Loading…">
+      <i class="fa-solid fa-rotate"></i> {{ 'Refresh carrier list' if carriers else 'Load carrier list' }}
+    </button>
+  </form>
+</header>
+
+{% if not carriers %}
+<div class="notice notice-warning"><i class="fa-solid fa-triangle-exclamation"></i>
+  <span>{% if has_client %}Load the carrier list to see the warehouse's carriers and test Ship Via text.{% else %}Add a client first. Its credentials are used to read the carrier list.{% endif %} Runs also load it automatically.</span>
+</div>
+{% endif %}
+
+<section class="card">
+  <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-vial"></i> Test a Ship Via</h2></div>
+  <form method="get" action="/shipping" class="card-body">
+    <div class="form-row form-row-2">
+      <div class="field">
+        <label for="check">Ship Via as written on the PO</label>
+        <input class="input" id="check" name="check" value="{{ check }}" placeholder="USPS Priority Mail" maxlength="100">
+      </div>
+      <button class="btn btn-secondary"><i class="fa-solid fa-magnifying-glass"></i> Check</button>
+    </div>
+    {% if check_result %}
+    <div class="notice notice-success match-result">
+      <i class="fa-solid fa-circle-check"></i>
+      <span>Ships as <strong>{{ check_result.carrier }}</strong> / <strong>{{ check_result.service_description }}</strong>
+        (service code <code>{{ check_result.mode }}</code>, billing {{ check_result.billing_code }}){% if check_result.source == 'override' %}, from an override{% endif %}.</span>
+    </div>
+    {% elif check_error %}
+    <div class="notice notice-error match-result"><i class="fa-solid fa-circle-xmark"></i><span>{{ check_error }}</span></div>
+    {% endif %}
+  </form>
+</section>
+
+<section class="card">
+  <div class="card-header">
+    <h2 class="card-title"><i class="fa-solid fa-right-left"></i> Overrides</h2>
+    <span class="muted small">Only needed when a PO's wording doesn't match a 3PL Central service</span>
+  </div>
+  {% if carriers %}
+  <form method="post" action="/shipping/save" class="card-body" id="override-form" data-carriers="{{ carriers_json }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    {% if editing %}<input type="hidden" name="id" value="{{ editing.id }}">{% endif %}
+    <div class="form-grid">
+      <div class="field">
+        <label for="ship_via">Ship Via on the PO <span class="required">*</span></label>
+        <input class="input" id="ship_via" name="ship_via" value="{{ editing.ship_via if editing else check }}" placeholder="USPS Priority" required maxlength="60">
+      </div>
+      <div class="field">
+        <label for="carrier">3PL Central carrier <span class="required">*</span></label>
+        <select class="input" id="carrier" name="carrier" required>
+          <option value="">Choose…</option>
+          {% for c in carriers %}<option value="{{ c.name }}" {{ 'selected' if editing and editing.carrier == c.name }}>{{ c.name }}{% if c.description and c.description != c.name %} ({{ c.description }}){% endif %}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="mode">Service <span class="required">*</span></label>
+        <select class="input" id="mode" name="mode" required data-selected="{{ editing.mode if editing else '' }}">
+          <option value="">Choose a carrier first</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="billing_code">Billing</label>
+        <select class="input" id="billing_code" name="billing_code">
+          <option value="">Default ({{ default_billing }})</option>
+          {% for code in ['Prepaid', 'FreightCollect', 'BillThirdParty'] %}
+          <option value="{{ code }}" {{ 'selected' if editing and editing.billing_code == code }}>{{ code }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="account">Account #</label>
+        <input class="input" id="account" name="account" value="{{ (editing.account or '') if editing else '' }}" maxlength="60">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> {{ 'Save override' if editing else 'Add override' }}</button>
+      {% if editing %}<a class="btn btn-ghost" href="/shipping">Cancel</a>{% endif %}
+    </div>
+  </form>
+  {% endif %}
+
+  {% if rules %}
+  <div class="table-wrap {{ 'card-body-divided' if carriers }}">
+    <table class="table">
+      <thead><tr><th>Ship Via on the PO</th><th>Carrier</th><th>Service code</th><th>Billing</th><th>Account</th><th></th></tr></thead>
+      <tbody>
+        {% for r in rules %}
+        <tr>
+          <td class="strong">{{ r.ship_via }}</td>
+          <td>{{ r.carrier }}</td>
+          <td class="mono">{{ r.mode or '-' }}</td>
+          <td>{{ r.billing_code or 'Default' }}</td>
+          <td class="mono">{{ r.account or '-' }}</td>
+          <td class="row-actions">
+            <a class="btn btn-secondary btn-sm" href="/shipping?edit={{ r.id }}"><i class="fa-solid fa-pen"></i><span class="sr-only">Edit {{ r.ship_via }}</span></a>
+            <form method="post" action="/shipping/{{ r.id }}/delete" data-confirm="Delete the override for “{{ r.ship_via }}”?">
+              <input type="hidden" name="_csrf" value="{{ csrf }}">
+              <button class="btn btn-danger-ghost btn-sm"><i class="fa-solid fa-trash"></i><span class="sr-only">Delete {{ r.ship_via }}</span></button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif carriers %}
+  <p class="muted small card-footnote">No overrides. That's normal when POs use the same names as 3PL Central.</p>
+  {% else %}
+  <div class="empty-state"><p>Overrides can be added once the carrier list is loaded.</p></div>
+  {% endif %}
+</section>
+
+{% if carriers %}
+<section class="card">
+  <div class="card-header">
+    <h2 class="card-title"><i class="fa-solid fa-truck-fast"></i> Carriers in 3PL Central</h2>
+    <span class="muted small">Loaded {{ localtime(fetched_at) }}</span>
+  </div>
+  <div class="card-body carrier-list">
+    {% for c in carriers %}
+    <details>
+      <summary><strong>{{ c.name }}</strong>{% if c.description and c.description != c.name %} <span class="muted">{{ c.description }}</span>{% endif %}
+        <span class="muted small">· {{ c.services | length }} services{% if c.scac %} · SCAC {{ c.scac }}{% endif %}</span></summary>
+      <table class="table table-compact">
+        <thead><tr><th>Service</th><th>Code</th></tr></thead>
+        <tbody>{% for s in c.services %}<tr><td>{{ s.description }}</td><td class="mono">{{ s.code }}</td></tr>{% endfor %}</tbody>
+      </table>
+      <p class="muted small">Billing: {{ c.billing_codes | join(', ') or 'any' }}</p>
+    </details>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

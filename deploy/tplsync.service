@@ -1,0 +1,16 @@
+[Unit]
+Description=Syncore PO -> 3PL Central order sync
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=tplsync
+Group=tplsync
+WorkingDirectory=/opt/tplsync
+ExecStart=/opt/tplsync/venv/bin/python -m tplsync run
+TimeoutStartSec=20min
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/tplsync
+PrivateTmp=true

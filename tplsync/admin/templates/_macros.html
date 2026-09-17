@@ -1,0 +1,75 @@
+{% macro run_status(status, summary=None) -%}
+  {% if status == 'ok' and summary and summary.get('errors') %}<span class="badge badge-warning">OK with errors</span>
+  {% elif status == 'ok' %}<span class="badge badge-success">OK</span>
+  {% elif status == 'failed' %}<span class="badge badge-error">Failed</span>
+  {% elif status == 'running' %}<span class="badge badge-info"><i class="fa-solid fa-circle-notch fa-spin"></i> Running</span>
+  {% elif status == 'interrupted' %}<span class="badge badge-warning">Interrupted</span>
+  {% else %}<span class="badge badge-muted">{{ status }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro run_kind(kind) -%}
+  {{ {'scheduled': 'Scheduled', 'manual': 'Run now', 'test': 'PO test', 'clients': 'Client matching'}.get(kind, kind) }}
+{%- endmacro %}
+
+{% macro level_icon(level) -%}
+  {% if level == 'error' %}<i class="fa-solid fa-circle-xmark level-error" title="Error"></i>
+  {% elif level == 'warning' %}<i class="fa-solid fa-triangle-exclamation level-warning" title="Warning"></i>
+  {% else %}<i class="fa-solid fa-circle-info level-info" title="Info"></i>{% endif %}
+{%- endmacro %}
+
+{% macro email_status(status) -%}
+  {% if status == 'sent' %}<span class="badge badge-success">Sent</span>
+  {% elif status == 'failed' %}<span class="badge badge-error">Failed</span>
+  {% else %}<span class="badge badge-muted">Dry run (not sent)</span>{% endif %}
+{%- endmacro %}
+
+{% macro summary(obj) -%}
+  {% set labels = [('found', 'PO found', 'POs found'), ('processed', 'processed', 'processed'), ('waiting', 'waiting', 'waiting'), ('skipped', 'skipped', 'skipped'), ('previewed', 'previewed', 'previewed'), ('created', 'order created', 'orders created'), ('completed', 'completed', 'completed'), ('left_open', 'left open', 'left open'), ('completed_late', 'completed after restock', 'completed after restock'), ('still_open', 'still short', 'still short'), ('errors', 'error', 'errors'), ('scanned', 'Syncore client read', 'Syncore clients read'), ('matched', 'matched', 'matched'), ('ambiguous', 'with several possible matches', 'with several possible matches'), ('unmatched', 'not found', 'not found')] %}
+  {% set parts = [] %}
+  {% if obj and obj.get('paused') %}{% set _ = parts.append('paused') %}{% endif %}
+  {% for key, one, many in labels if obj and obj.get(key) %}{% set _ = parts.append(obj[key] ~ ' ' ~ (one if obj[key] == 1 else many)) %}{% endfor %}
+  {{ parts | join(' · ') if parts else 'Nothing to do' }}
+{%- endmacro %}
+
+{% macro event_list(events, show_po=False) -%}
+<ol class="timeline">
+  {% for e in events %}
+  <li class="timeline-item level-{{ e.level }}">
+    <div class="timeline-icon">{{ level_icon(e.level) }}</div>
+    <div class="timeline-body">
+      <div class="timeline-head">
+        <span class="timeline-message">{{ e.message }}</span>
+      </div>
+      <div class="timeline-meta">
+        <span>{{ localtime(e.at) }}</span>
+        <code>{{ e.event }}</code>
+        {% if show_po and e.po_id %}<a href="/po/{{ e.po_id }}">{{ e.reference or ('PO id ' ~ e.po_id) }}</a>{% endif %}
+        {% if not show_po and e.run_id %}<a href="/logs/runs/{{ e.run_id }}">Run #{{ e.run_id }}</a>{% endif %}
+      </div>
+      {% if e.data_pretty %}
+      <details class="data">
+        <summary>Details</summary>
+        <pre>{{ e.data_pretty }}</pre>
+      </details>
+      {% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ol>
+{%- endmacro %}
+
+{% macro email_list(emails) -%}
+<div class="email-list">
+  {% for m in emails %}
+  <details class="email">
+    <summary>
+      {{ email_status(m.status) }}
+      <span class="email-subject">{{ m.subject }}</span>
+      <span class="email-meta">{{ localtime(m.at) }} · to {{ m.recipients }}</span>
+    </summary>
+    {% if m.error %}<div class="notice notice-error small">{{ m.error }}</div>{% endif %}
+    <pre>{{ m.body }}</pre>
+  </details>
+  {% endfor %}
+</div>
+{%- endmacro %}

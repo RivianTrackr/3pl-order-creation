@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1 class="page-title">Users</h1>
+    <p class="page-subtitle">Everyone listed here can sign in and change every setting.</p>
+  </div>
+</header>
+
+<div class="two-col">
+  <section class="card">
+    <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-users"></i> Admin users</h2></div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Username</th><th>Last sign-in</th><th></th></tr></thead>
+        <tbody>
+          {% for u in users %}
+          <tr>
+            <td class="strong">{{ u.username }}{% if u.id == user.id %} <span class="badge badge-muted">You</span>{% endif %}</td>
+            <td class="nowrap">{{ localtime(u.last_login_at) or 'Never' }}</td>
+            <td class="row-actions">
+              {% if u.id != user.id %}
+              <form method="post" action="/users/{{ u.id }}/delete" data-confirm="Delete {{ u.username }}?">
+                <input type="hidden" name="_csrf" value="{{ csrf }}">
+                <button class="btn btn-danger-ghost btn-sm"><i class="fa-solid fa-trash"></i><span class="sr-only">Delete {{ u.username }}</span></button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <form method="post" action="/users/create" class="card-body card-body-divided">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <h3 class="subhead">Add user</h3>
+      <div class="form-grid">
+        <div class="field"><label for="new_username">Username</label><input class="input" id="new_username" name="new_username" autocomplete="off" required></div>
+        <div class="field"><label for="new_password">Password</label><input class="input" type="password" id="new_password" name="new_password" autocomplete="new-password" minlength="12" required></div>
+      </div>
+      <div class="form-actions"><button class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add user</button></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-key"></i> Change your password</h2></div>
+    <form method="post" action="/account/password" class="card-body stack">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <div class="field"><label for="current_password">Current password</label><input class="input" type="password" id="current_password" name="current_password" autocomplete="current-password" required></div>
+      <div class="field"><label for="np">New password</label><input class="input" type="password" id="np" name="new_password" autocomplete="new-password" minlength="12" required></div>
+      <div class="field"><label for="confirm_password">Repeat new password</label><input class="input" type="password" id="confirm_password" name="confirm_password" autocomplete="new-password" minlength="12" required></div>
+      <p class="field-description">At least 12 characters. Changing it signs you out everywhere.</p>
+      <div><button class="btn btn-secondary">Change password</button></div>
+    </form>
+  </section>
+</div>
+
+<section class="card">
+  <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-clock-rotate-left"></i> Activity log</h2></div>
+  {% if audit %}
+  <div class="table-wrap">
+    <table class="table table-compact">
+      <thead><tr><th>When</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
+      <tbody>
+        {% for a in audit %}
+        <tr><td class="nowrap">{{ localtime(a.at) }}</td><td>{{ a.username or '-' }}</td><td class="mono">{{ a.action }}</td><td>{{ a.detail or '' }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state"><p>No activity yet.</p></div>
+  {% endif %}
+</section>
+{% endblock %}

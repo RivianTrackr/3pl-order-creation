@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}{{ reference or ('PO ' ~ po_id) }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="breadcrumb"><a href="/">Dashboard</a> /</p>
+    <h1 class="page-title">{{ reference or ('PO id ' ~ po_id) }}</h1>
+    <p class="page-subtitle">Syncore PO id {{ po_id }}{% if record %} · job {{ record.job_id }}{% endif %}</p>
+  </div>
+  {% if record and record.state in ('failed', 'error') %}
+  <form method="post" action="/po/{{ po_id }}/retry">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <button class="btn btn-primary"><i class="fa-solid fa-rotate-right"></i> Retry</button>
+  </form>
+  {% endif %}
+</header>
+
+{% if record %}
+<section class="card">
+  <dl class="facts">
+    <div><dt>Status</dt><dd>
+      {% if record.completion == 'open_short' %}<span class="badge badge-warning">Open: short stock</span>
+      {% elif record.state == 'done' %}<span class="badge badge-success">Completed</span>
+      {% elif record.state == 'failed' %}<span class="badge badge-error">Failed</span>
+      {% elif record.state == 'error' %}<span class="badge badge-error-soft">Retrying</span>
+      {% else %}<span class="badge badge-muted">{{ state_labels.get(record.state, record.state) }}</span>{% endif %}
+    </dd></div>
+    <div><dt>3PL transaction</dt><dd class="mono">{{ record.order_id or '-' }}</dd></div>
+    <div><dt>Syncore client group</dt><dd class="mono">{{ record.client_id or '-' }}</dd></div>
+    <div><dt>Critical Comments updated</dt><dd>{{ 'Yes' if record.logged else 'No' }}</dd></div>
+    <div><dt>Attempts</dt><dd>{{ record.attempts }}</dd></div>
+    <div><dt>First seen</dt><dd>{{ localtime(record.first_seen) }}</dd></div>
+    <div><dt>Last updated</dt><dd>{{ localtime(record.updated_at) }}</dd></div>
+    <div><dt>Syncore last modified</dt><dd>{{ record.last_modified or '-' }}</dd></div>
+  </dl>
+  {% if record.last_error or record.skip_reason %}
+  <div class="card-body card-body-divided">
+    <div class="notice notice-{{ 'error' if record.last_error else 'info' }} no-margin">
+      <span>{{ record.last_error or ('Skipped: ' ~ record.skip_reason) }}</span>
+    </div>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="card">
+  <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-timeline"></i> Timeline</h2><span class="muted small">oldest first</span></div>
+  {% if events %}
+  <div class="card-body">{{ m.event_list(events) }}</div>
+  {% else %}
+  <div class="empty-state"><p>No events recorded (they may have been removed by log retention).</p></div>
+  {% endif %}
+</section>
+
+{% if emails %}
+<section class="card">
+  <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-envelope"></i> Emails about this PO</h2></div>
+  <div class="card-body">{{ m.email_list(emails) }}</div>
+</section>
+{% endif %}
+{% endblock %}

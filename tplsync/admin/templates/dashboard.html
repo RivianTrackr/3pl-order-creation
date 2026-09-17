@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1 class="page-title">Dashboard</h1>
+    <p class="page-subtitle">
+      {% if start_date %}Processing Syncore POs created since {{ localtime(start_date) }}.{% else %}Not live yet.{% endif %}
+      Times shown in {{ tz_name }}.
+    </p>
+  </div>
+  <form method="post" action="/run-now">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <button class="btn btn-primary" {{ 'disabled' if not start_date }}><i class="fa-solid fa-play"></i> Run now</button>
+  </form>
+</header>
+
+{% if paused %}
+<div class="notice notice-warning"><i class="fa-solid fa-circle-pause"></i><span>Processing is <strong>paused</strong>. Scheduled runs won't do anything. <a href="/settings#behaviour">Change in Settings</a></span></div>
+{% endif %}
+{% if dry_run %}
+<div class="notice notice-info"><i class="fa-solid fa-flask"></i><span><strong>Dry run</strong> is on. Nothing is created in 3PL Central, Syncore isn't updated and no emails are sent. <a href="/settings#behaviour">Change in Settings</a></span></div>
+{% endif %}
+{% if last_error %}
+<div class="notice notice-error"><i class="fa-solid fa-circle-exclamation"></i><span>The last run failed: {{ last_error }} {% if last_run %}<a href="/logs/runs/{{ last_run.id }}">View log</a>{% endif %}</span></div>
+{% endif %}
+
+{% if not setup_done %}
+<section class="card">
+  <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-list-check"></i> Setup</h2></div>
+  <ul class="checklist">
+    {% for label, ok, link in checklist %}
+    <li class="{{ 'is-done' if ok }}">
+      <i class="fa-solid {{ 'fa-circle-check' if ok else 'fa-circle' }}"></i>
+      {% if link and not ok %}<a href="{{ link }}">{{ label }}</a>{% else %}{{ label }}{% endif %}
+      {% if label.startswith('Go-live') and not ok %}
+      <form method="post" action="/go-live" class="inline-form" data-confirm="Start processing POs created from now on?">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <button class="btn btn-secondary btn-sm">Go live now</button>
+      </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<div class="stats-grid">
+  <a class="stat {{ 'is-selected' if state == 'done' }}" href="/?state=done">
+    <span class="stat-label">Completed</span><span class="stat-value">{{ counts.completed }}</span>
+  </a>
+  <a class="stat stat-warning {{ 'is-selected' if state == 'open_short' }}" href="/?state=open_short">
+    <span class="stat-label">Open: short stock</span><span class="stat-value">{{ counts.open_short }}</span>
+  </a>
+  <a class="stat stat-error {{ 'is-selected' if state == 'problems' }}" href="/?state=problems">
+    <span class="stat-label">Problems</span><span class="stat-value">{{ counts.problems }}</span>
+  </a>
+  <a class="stat {{ 'is-selected' if state == 'waiting' }}" href="/?state=waiting">
+    <span class="stat-label">Waiting</span><span class="stat-value">{{ counts.pending }}</span>
+  </a>
+  <a class="stat stat-muted" href="{{ '/logs/runs/' ~ last_run.id if last_run else '/logs' }}">
+    <span class="stat-label">Last scheduled run</span>
+    <span class="stat-meta">{{ localtime(last_run.started_at) if last_run else 'Never' }}</span>
+  </a>
+  <div class="stat stat-muted">
+    <span class="stat-label">Last backup</span>
+    <span class="stat-meta">{{ localtime(last_backup) or 'Never' }}</span>
+  </div>
+</div>
+
+<section class="card">
+  <div class="card-header">
+    <h2 class="card-title">Purchase orders</h2>
+    <nav class="segmented" aria-label="Filter">
+      {% for key, label in [('', 'Active'), ('done', 'Done'), ('open_short', 'Open'), ('problems', 'Problems'), ('skipped', 'Skipped')] %}
+      <a href="/?state={{ key }}" class="{{ 'active' if state == key }}">{{ label }}</a>
+      {% endfor %}
+    </nav>
+  </div>
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr><th>Reference</th><th>Status</th><th>3PL transaction</th><th>Details</th><th>Updated</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="mono"><a href="/po/{{ r.po_id }}">{{ r.reference or ('Job ' ~ r.job_id) }}</a><div class="cell-meta">PO id {{ r.po_id }}</div></td>
+          <td>
+            {% if r.completion == 'open_short' %}
+            <span class="badge badge-warning">Open: short stock</span>
+            {% elif r.state == 'done' %}
+            <span class="badge badge-success">Completed</span>
+            {% elif r.state == 'failed' %}
+            <span class="badge badge-error">Failed</span>
+            {% elif r.state == 'error' %}
+            <span class="badge badge-error-soft">Retrying ({{ r.attempts }})</span>
+            {% else %}
+            <span class="badge badge-muted">{{ state_labels.get(r.state, r.state) }}</span>
+            {% endif %}
+          </td>
+          <td class="mono">{{ r.order_id or '-' }}</td>
+          <td class="cell-detail">{{ r.last_error or r.skip_reason or '' }}</td>
+          <td class="nowrap">{{ localtime(r.updated_at) }}</td>
+          <td class="row-actions">
+            {% if r.state in ('failed', 'error') %}
+            <form method="post" action="/po/{{ r.po_id }}/retry">
+              <input type="hidden" name="_csrf" value="{{ csrf }}">
+              <button class="btn btn-secondary btn-sm"><i class="fa-solid fa-rotate-right"></i> Retry</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <i class="fa-solid fa-inbox"></i>
+    <h3>Nothing here yet</h3>
+    <p>Purchase orders appear once a run picks them up.</p>
+  </div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-vial"></i> Test a purchase order</h2></div>
+  <div class="card-body">
+    <p class="muted">Preview the 3PL Central order for one Syncore PO. The preview doesn't change anything. The IDs appear in the PO's Syncore URL. You'll be taken to the run's live log.</p>
+    <form method="post" action="/test-po" class="form-row">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <div class="field"><label for="job">Job number</label><input class="input" id="job" name="job" inputmode="numeric" pattern="[0-9]+" required></div>
+      <div class="field"><label for="po">PO id</label><input class="input" id="po" name="po" inputmode="numeric" pattern="[0-9]+" required></div>
+      <div class="field">
+        <label for="mode">Mode</label>
+        <select class="input" id="mode" name="mode" data-live-warning>
+          <option value="dry">Preview only</option>
+          <option value="live">Process for real</option>
+        </select>
+      </div>
+      <button class="btn btn-secondary" data-loading-text="Starting…"><i class="fa-solid fa-magnifying-glass"></i> Run test</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

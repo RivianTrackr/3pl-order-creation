@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · 3PL Order Sync</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="/static/admin.css?v=9">
+  <link rel="icon" href="data:,">
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <div class="login-brand">
+      <span class="brand-mark"><i class="fa-solid fa-boxes-stacked"></i></span>
+      <h1>3PL Order Sync</h1>
+      <p>Sign in to manage clients and settings.</p>
+    </div>
+
+    {% if flash %}
+    <div class="notice notice-{{ flash.k }}" role="status"><span>{{ flash.m }}</span></div>
+    {% endif %}
+    {% if error %}
+    <div class="notice notice-error" role="alert"><i class="fa-solid fa-circle-exclamation"></i><span>{{ error }}</span></div>
+    {% endif %}
+    {% if no_users %}
+    <div class="notice notice-info">
+      <i class="fa-solid fa-circle-info"></i>
+      <span>No admin users yet. On the server run <code>python -m tplsync create-user &lt;name&gt;</code>.</span>
+    </div>
+    {% endif %}
+
+    <form method="post" action="/login" class="stack">
+      <div class="field">
+        <label for="username">Username</label>
+        <input class="input" type="text" id="username" name="username" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input class="input" type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>

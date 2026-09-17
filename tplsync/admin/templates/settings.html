@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1 class="page-title">Settings</h1>
+    <p class="page-subtitle">API keys are encrypted when saved and never shown again. Leave a key blank to keep the saved one.</p>
+  </div>
+</header>
+
+{% if decrypt_error %}
+<div class="notice notice-error"><i class="fa-solid fa-lock"></i><span>{{ decrypt_error }}</span></div>
+{% endif %}
+{% if missing %}
+<div class="notice notice-warning"><i class="fa-solid fa-triangle-exclamation"></i><span>Still needed before orders can be processed: {{ missing | join(', ') }}.</span></div>
+{% endif %}
+
+<form method="post" action="/settings" id="settings-form">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  {% for section_key, section_name, icon in sections %}
+  <section class="card" id="{{ section_key }}">
+    <div class="card-header">
+      <h2 class="card-title"><i class="{{ icon }}"></i> {{ section_name }}</h2>
+      {% if section_key == 'syncore' %}
+      <button class="btn btn-secondary btn-sm" form="test-syncore"><i class="fa-solid fa-plug"></i> Test connection</button>
+      {% elif section_key == 'alerts' %}
+      <button class="btn btn-secondary btn-sm" form="test-email"><i class="fa-solid fa-paper-plane"></i> Send test email</button>
+      <button class="btn btn-secondary btn-sm" form="send-summary"><i class="fa-solid fa-envelope-open-text"></i> Send summary now</button>
+      {% elif section_key == 'tpl' %}
+      <span class="muted small">Each client's credentials are on the <a href="/clients">Clients</a> page.</span>
+      {% endif %}
+    </div>
+    {% for d in defs if d.section == section_key %}
+    <div class="field-row">
+      <div class="field-row-label">
+        <label for="{{ d.key }}">{{ d.label }}{% if d.required %} <span class="required" aria-label="required">*</span>{% endif %}</label>
+        {% if d.help %}<p class="field-description">{{ d.help }}</p>{% endif %}
+      </div>
+      <div class="field-row-control">
+        {% if d.kind == 'bool' %}
+        <label class="toggle">
+          <input type="checkbox" id="{{ d.key }}" name="{{ d.key }}" {{ 'checked' if values.get(d.key) == 'true' }}>
+          <span class="toggle-track" aria-hidden="true"></span>
+        </label>
+        {% elif d.kind == 'secret' %}
+        <input class="input" type="password" id="{{ d.key }}" name="{{ d.key }}" autocomplete="new-password"
+               placeholder="{{ 'Saved (leave blank to keep)' if secret_set[d.key] else 'Not set' }}">
+        {% if secret_set[d.key] %}
+        <label class="checkbox"><input type="checkbox" name="{{ d.key }}__clear"> Remove saved key</label>
+        {% endif %}
+        {% else %}
+        <input class="input" type="{{ 'email' if d.kind == 'email' and d.key != 'ALERT_EMAIL_TO' else 'text' }}"
+               id="{{ d.key }}" name="{{ d.key }}" value="{{ values.get(d.key) or '' }}"
+               {% if d.kind == 'int' %}inputmode="numeric" pattern="[0-9]*"{% endif %}
+               {% if d.default %}placeholder="{{ d.default }}"{% endif %}>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+  <div class="sticky-actions">
+    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save settings</button>
+  </div>
+</form>
+
+<form method="post" action="/settings/test-syncore" id="test-syncore"><input type="hidden" name="_csrf" value="{{ csrf }}"></form>
+<form method="post" action="/settings/test-email" id="test-email"><input type="hidden" name="_csrf" value="{{ csrf }}"></form>
+<form method="post" action="/settings/send-summary" id="send-summary"><input type="hidden" name="_csrf" value="{{ csrf }}"></form>
+{% endblock %}

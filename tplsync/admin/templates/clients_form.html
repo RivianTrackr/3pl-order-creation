@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name if client else 'Add client' }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="breadcrumb"><a href="/clients">Clients</a> /</p>
+    <h1 class="page-title">{{ client.name if client else 'Add client' }}
+      {% if client %}
+        {% if client.status == 'ready' %}<span class="badge badge-success">Active</span>
+        {% elif client.status == 'paused' %}<span class="badge badge-muted">Ready, not active</span>
+        {% else %}<span class="badge badge-warning">Needs info</span>{% endif %}
+      {% endif %}
+    </h1>
+    {% if client and (client.tpl_customer_name or client.syncore_group_name) %}
+    <p class="page-subtitle">
+      {% if client.tpl_customer_name %}3PL Central: {{ client.tpl_customer_name }}{% endif %}
+      {% if client.tpl_customer_name and client.syncore_group_name %} · {% endif %}
+      {% if client.syncore_group_name %}Syncore: {{ client.syncore_group_name }}{% endif %}
+      {% if client.last_po_at %} · last PO {{ localtime(client.last_po_at) }}{% endif %}
+    </p>
+    {% endif %}
+  </div>
+  {% if client %}
+  <button class="btn btn-secondary" form="test-client" data-loading-text="Testing…"
+          {{ 'disabled' if not (client.customer_id and client.client_id and client.has_secret) }}><i class="fa-solid fa-plug"></i> Test connection</button>
+  {% endif %}
+</header>
+
+{% set steps = [
+  ('Syncore client group', client and client.syncore_group_id),
+  ('3PL Customer ID', client and client.customer_id),
+  ('Client ID', client and client.client_id),
+  ('Client Secret', client and client.has_secret),
+] %}
+<section class="card">
+  <ul class="checklist setup-steps">
+    {% for label, done in steps %}
+    <li class="{{ 'is-done' if done }}"><i class="fa-solid {{ 'fa-circle-check' if done else 'fa-circle' }}"></i> {{ label }}</li>
+    {% endfor %}
+    <li class="{{ 'is-done' if client and client.status == 'ready' }}"><i class="fa-solid {{ 'fa-circle-check' if client and client.status == 'ready' else 'fa-circle' }}"></i> Active</li>
+  </ul>
+</section>
+
+{% if suggestions %}
+<section class="card" id="suggestions">
+  <div class="card-header">
+    <h2 class="card-title"><i class="fa-solid fa-wand-magic-sparkles"></i> Is this the Syncore client group?</h2>
+    <span class="muted small">Close name matches</span>
+  </div>
+  <ul class="suggestion-list">
+    {% for sgg in suggestions %}
+    <li>
+      <div>
+        <div class="strong">{{ sgg.business_name }}</div>
+        <div class="cell-meta">Syncore client group #{{ sgg.syncore_group_id }}</div>
+      </div>
+      <form method="post" action="/clients/{{ client.id }}/use-syncore">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="syncore_group_id" value="{{ sgg.syncore_group_id }}">
+        <button class="btn btn-secondary btn-sm">Use this one</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="muted small card-footnote">None of these? Leave it: the group is linked automatically when this client's first {{ vendor_name }} PO arrives.</p>
+</section>
+{% endif %}
+
+<form method="post" action="/clients/save">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  {% if client %}<input type="hidden" name="id" value="{{ client.id }}">{% endif %}
+
+  <section class="card">
+    <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-cloud"></i> Syncore</h2></div>
+    <div class="field-row">
+      <div class="field-row-label"><label for="name">Client name <span class="required">*</span></label></div>
+      <div class="field-row-control"><input class="input" id="name" name="name" value="{{ client.name if client else '' }}" required maxlength="120"></div>
+    </div>
+    <div class="field-row">
+      <div class="field-row-label">
+        <label for="syncore_group_id">Syncore client group</label>
+        <p class="field-description">The company's client group in Syncore; every contact in it (store billing, employees, dropship) is treated as this client. Matched by name automatically, or linked when a {{ vendor_name }} PO arrives.</p>
+      </div>
+      <div class="field-row-control">
+        {% if groups %}
+        <select class="input" id="syncore_group_id" name="syncore_group_id">
+          <option value="">Not linked yet</option>
+          {% for g in groups %}<option value="{{ g.id }}" {{ 'selected' if client and client.syncore_group_id == g.id }}>{{ g.name }}</option>{% endfor %}
+          {% if client and client.syncore_group_id and not (groups | selectattr('id', 'equalto', client.syncore_group_id) | list) %}
+          <option value="{{ client.syncore_group_id }}" selected>{{ client.syncore_group_name or ('Group #' ~ client.syncore_group_id) }}</option>
+          {% endif %}
+        </select>
+        {% else %}
+        <input class="input mono" id="syncore_group_id" name="syncore_group_id" value="{{ (client.syncore_group_id or '') if client else '' }}" inputmode="numeric" pattern="[0-9]*" maxlength="20">
+        <p class="field-description">Click “Match Syncore groups” on the Clients page to choose from a list.</p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-warehouse"></i> 3PL Central</h2></div>
+    <div class="field-row">
+      <div class="field-row-label">
+        <label for="customer_id">Customer ID</label>
+        <p class="field-description">Leave blank: it's filled in from the Client ID and Secret when you save.</p>
+      </div>
+      <div class="field-row-control"><input class="input mono" id="customer_id" name="customer_id" value="{{ (client.customer_id or '') if client else '' }}" inputmode="numeric" pattern="[0-9]*"></div>
+    </div>
+    <div class="field-row">
+      <div class="field-row-label"><label for="client_id">Client ID</label></div>
+      <div class="field-row-control"><input class="input mono" id="client_id" name="client_id" value="{{ (client.client_id or '') if client else '' }}" autocomplete="off" maxlength="200"></div>
+    </div>
+    <div class="field-row">
+      <div class="field-row-label">
+        <label for="client_secret">Client Secret</label>
+        <p class="field-description">{{ 'Saved and encrypted. Leave blank to keep it.' if client and client.has_secret else 'Encrypted when saved.' }}</p>
+      </div>
+      <div class="field-row-control">
+        <input class="input mono" type="password" id="client_secret" name="client_secret" autocomplete="new-password"
+               placeholder="{{ '••••••••••••' if client and client.has_secret else '' }}">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field-row-label">
+        <label for="user_login">User login override</label>
+        <p class="field-description">Optional. Leave blank to use the user login from Settings.</p>
+      </div>
+      <div class="field-row-control"><input class="input" id="user_login" name="user_login" value="{{ (client.user_login or '') if client else '' }}" maxlength="120"></div>
+    </div>
+    <div class="field-row">
+      <div class="field-row-label">
+        <label for="active">Active</label>
+        <p class="field-description">
+          {% if client and client.missing %}Can be turned on once {{ client.missing | join(', ') }} {{ 'is' if client.missing | length == 1 else 'are' }} filled in.
+          {% else %}When on, this client's {{ vendor_name }} POs are sent to 3PL Central. While off, they wait and go through once it's turned on.{% endif %}
+        </p>
+      </div>
+      <div class="field-row-control">
+        <label class="toggle">
+          <input type="checkbox" id="active" name="active" {{ 'checked' if not client or client.active or client.missing }}>
+          <span class="toggle-track" aria-hidden="true"></span>
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <div class="sticky-actions">
+    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save client</button>
+    <a class="btn btn-ghost" href="/clients">Cancel</a>
+    {% if client %}
+    <button class="btn btn-danger btn-push" form="delete-client"><i class="fa-solid fa-trash"></i> Delete</button>
+    {% endif %}
+  </div>
+</form>
+
+{% if client %}
+<form method="post" action="/clients/{{ client.id }}/test" id="test-client"><input type="hidden" name="_csrf" value="{{ csrf }}"></form>
+<form method="post" action="/clients/{{ client.id }}/delete" id="delete-client" data-confirm="Delete {{ client.name }}? Its POs will stop being processed.">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+</form>
+{% endif %}
+{% endblock %}

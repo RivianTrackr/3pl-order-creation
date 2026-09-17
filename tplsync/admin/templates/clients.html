@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Clients{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1 class="page-title">Clients</h1>
+    <p class="page-subtitle">Clients shipping through {{ warehouse_name }}. A client's orders only go to 3PL Central once it has all four details and is active.</p>
+  </div>
+  <div class="header-actions">
+    <form method="post" action="/clients/match">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <button class="btn btn-secondary" {{ 'disabled' if not has_syncore_key }} data-loading-text="Matching…"
+              title="{{ 'Link clients to Syncore client groups by name' if has_syncore_key else 'Save the Syncore API key in Settings first' }}">
+        <i class="fa-solid fa-wand-magic-sparkles"></i> Match Syncore groups
+      </button>
+    </form>
+    <form method="post" action="/clients/sync">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <button class="btn btn-secondary" {{ 'disabled' if not can_sync }} data-loading-text="Syncing…"
+              title="{{ 'Fill in Customer IDs and names from 3PL Central' if can_sync else 'Finish and activate one client first' }}">
+        <i class="fa-solid fa-rotate"></i> Check with 3PL Central
+      </button>
+    </form>
+    <a class="btn btn-primary" href="/clients/new"><i class="fa-solid fa-plus"></i> Add client</a>
+  </div>
+</header>
+
+<p class="muted small sync-note">
+  Clients are linked to a <strong>Syncore client group</strong>, so orders from any of the company's contacts (store billing, employees, dropship) are recognized.
+  Groups are matched by name daily, and a new client is added when a {{ vendor_name }} PO arrives from a group that isn't listed. Saving a Client ID and Secret fills in the 3PL Customer ID.
+  {% if matched_at %}<br>Last matched {{ localtime(matched_at) }}{% if match_result %}: {{ match_result.matched }} linked, {{ match_result.suggested }} with close names to confirm, {{ match_result.unmatched }} with no similar group{% endif %}.{% endif %}
+</p>
+
+<div class="stats-grid">
+  <a class="stat {{ 'is-selected' if show == '' }}" href="/clients"><span class="stat-label">All clients</span><span class="stat-value">{{ total }}</span></a>
+  <a class="stat stat-warning {{ 'is-selected' if show == 'incomplete' }}" href="/clients?show=incomplete"><span class="stat-label">Needs info</span><span class="stat-value">{{ counts.incomplete }}</span></a>
+  <a class="stat {{ 'is-selected' if show == 'paused' }}" href="/clients?show=paused"><span class="stat-label">Ready, not active</span><span class="stat-value">{{ counts.paused }}</span></a>
+  <a class="stat stat-success {{ 'is-selected' if show == 'ready' }}" href="/clients?show=ready"><span class="stat-label">Active</span><span class="stat-value">{{ counts.ready }}</span></a>
+</div>
+
+<section class="card">
+  {% if clients %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr><th>Client</th><th>Setup</th><th>Status</th><th>Last PO</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for c in clients %}
+        <tr>
+          <td class="client-cell">
+            <a href="/clients/{{ c.id }}" class="strong">{{ c.name }}</a>
+            <div class="cell-meta">
+              {% if c.syncore_group_id %}Syncore group {{ c.syncore_group_name or c.syncore_group_id }}{% endif %}
+              {% if c.syncore_group_id and c.customer_id %} · {% endif %}
+              {% if c.customer_id %}3PL #{{ c.customer_id }}{% endif %}
+            </div>
+          </td>
+          <td>
+            <div class="setup-pills" aria-label="{{ 'Missing: ' ~ (c.missing | join(', ')) if c.missing else 'All details saved' }}">
+              {% for label, done in [('Syncore group', c.syncore_group_id), ('Customer ID', c.customer_id), ('Client ID', c.client_id), ('Secret', c.has_secret)] %}
+              <span class="pill {{ 'pill-done' if done else 'pill-missing' }}"><i class="fa-solid {{ 'fa-check' if done else 'fa-minus' }}"></i> {{ label }}</span>
+              {% endfor %}
+            </div>
+          </td>
+          <td>
+            {% if c.status == 'ready' %}<span class="badge badge-success">Active</span>
+            {% elif c.status == 'paused' %}<span class="badge badge-muted">Ready, not active</span>
+            {% else %}<span class="badge badge-warning">Needs {{ c.missing | length }} {{ 'detail' if c.missing | length == 1 else 'details' }}</span>{% endif %}
+            {% if c.suggestions %}<div class="cell-meta"><a href="/clients/{{ c.id }}#suggestions">{{ c.suggestions }} possible Syncore {{ 'group' if c.suggestions == 1 else 'groups' }} to confirm</a></div>{% endif %}
+          </td>
+          <td class="nowrap">{{ localtime(c.last_po_at) or '—' }}</td>
+          <td class="row-actions"><a class="btn btn-{{ 'primary' if c.status == 'incomplete' else 'secondary' }} btn-sm" href="/clients/{{ c.id }}">{{ 'Finish setup' if c.status == 'incomplete' else 'Edit' }}</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <i class="fa-solid fa-building"></i>
+    <h3>{{ 'No clients in this group' if show else 'No clients yet' }}</h3>
+    <p>{{ 'Try another filter.' if show else 'Add client names below. Clients are also added when their first PO arrives.' }}</p>
+  </div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <details class="card-details">
+    <summary class="card-header"><h2 class="card-title"><i class="fa-solid fa-list"></i> Add several clients by name</h2><span class="muted small">Show</span></summary>
+    <form method="post" action="/clients/add-names" class="card-body stack">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <div class="field">
+        <label for="names">One client per line, as named in 3PL Central</label>
+        <textarea class="input" id="names" name="names" rows="6" placeholder="Example Book Company&#10;Northwind Tools"></textarea>
+        <p class="field-description">Names already listed are skipped. Fill in each client's details afterwards.</p>
+      </div>
+      <div><button class="btn btn-secondary"><i class="fa-solid fa-plus"></i> Add clients</button></div>
+    </form>
+  </details>
+</section>
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Run #{{ run.id }}{% endblock %}
+{% block head %}{% if run.status == 'running' %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="breadcrumb"><a href="/logs">Logs</a> /</p>
+    <h1 class="page-title">Run #{{ run.id }} {{ m.run_status(run.status, run.summary_obj) }}</h1>
+    <p class="page-subtitle">
+      {{ m.run_kind(run.kind) }}{% if run.target %} for {{ run.target }}{% endif %}{% if run.triggered_by %}, started by {{ run.triggered_by }}{% endif %}
+      · {{ localtime(run.started_at) }}{% if run.duration %} · took {{ run.duration }}{% endif %}
+      {% if run.status == 'running' %}· <span class="muted">this page refreshes every 3 seconds</span>{% endif %}
+    </p>
+  </div>
+  {% if run.dry_run %}<span class="badge badge-info badge-lg"><i class="fa-solid fa-flask"></i> Dry run: nothing was changed</span>{% endif %}
+</header>
+
+{% if run.error %}
+<div class="notice notice-error"><i class="fa-solid fa-circle-exclamation"></i><span>{{ run.error }}</span></div>
+{% endif %}
+{% if run.status != 'running' and (run.summary_obj or not run.error) %}
+<div class="notice notice-{{ 'warning' if (run.summary_obj or {}).get('errors') else 'info' }}"><i class="fa-solid fa-chart-simple"></i><span>{{ m.summary(run.summary_obj) }}</span></div>
+{% endif %}
+
+<section class="card">
+  <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-timeline"></i> PO events</h2><span class="muted small">{{ events | length }}</span></div>
+  {% if run.kind == 'clients' %}
+  <div class="empty-state"><p>Client matching doesn't process POs. See the log below, then check the <a href="/clients">Clients</a> page.</p></div>
+  {% elif events %}
+  <div class="card-body">{{ m.event_list(events, show_po=True) }}</div>
+  {% else %}
+  <div class="empty-state"><p>No POs were acted on in this run.</p></div>
+  {% endif %}
+</section>
+
+{% if emails %}
+<section class="card">
+  <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-envelope"></i> Emails</h2></div>
+  <div class="card-body">{{ m.email_list(emails) }}</div>
+</section>
+{% endif %}
+
+<section class="card">
+  <div class="card-header">
+    <h2 class="card-title"><i class="fa-solid fa-terminal"></i> Full log</h2>
+    <nav class="segmented" aria-label="Log level">
+      {% for key, label in [('', 'All'), ('warning', 'Warnings'), ('error', 'Errors')] %}
+      <a href="/logs/runs/{{ run.id }}?level={{ key }}" class="{{ 'active' if level == key }}">{{ label }}</a>
+      {% endfor %}
+    </nav>
+  </div>
+  {% if lines %}
+  <div class="log-lines">
+    {% for l in lines %}
+    <div class="log-line log-{{ l.level | lower }}">
+      <span class="log-time">{{ localtime(l.at, seconds=True) }}</span>
+      <span class="log-level">{{ l.level }}</span>
+      <span class="log-msg">{{ l.message }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="muted small card-footnote">API keys and tokens are masked in the log.</p>
+  {% else %}
+  <div class="empty-state"><p>{{ 'Waiting for output…' if run.status == 'running' else 'No log lines at this level.' }}</p></div>
+  {% endif %}
+</section>
+{% endblock %}

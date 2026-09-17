@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Admin{% endblock %} · 3PL Order Sync</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="/static/admin.css?v=9">
+  <link rel="icon" href="data:,">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-mark"><i class="fa-solid fa-boxes-stacked"></i></span>
+        <span class="brand-text">3PL Order Sync</span>
+      </div>
+      <nav class="sidebar-nav" aria-label="Main">
+        <a href="/" class="{{ 'active' if nav == 'dashboard' }}"><i class="fa-solid fa-gauge"></i><span>Dashboard</span></a>
+        <a href="/clients" class="{{ 'active' if nav == 'clients' }}"><i class="fa-solid fa-building"></i><span>Clients</span></a>
+        <a href="/shipping" class="{{ 'active' if nav == 'shipping' }}"><i class="fa-solid fa-truck-fast"></i><span>Ship Via</span></a>
+        <a href="/logs" class="{{ 'active' if nav == 'logs' }}"><i class="fa-solid fa-list-ul"></i><span>Logs</span></a>
+        <a href="/settings" class="{{ 'active' if nav == 'settings' }}"><i class="fa-solid fa-gear"></i><span>Settings</span></a>
+        <a href="/users" class="{{ 'active' if nav == 'users' }}"><i class="fa-solid fa-user-shield"></i><span>Users</span></a>
+      </nav>
+      <div class="sidebar-footer">
+        <span class="sidebar-user"><i class="fa-solid fa-circle-user"></i> {{ user.username }}</span>
+        <form method="post" action="/logout">
+          <input type="hidden" name="_csrf" value="{{ csrf }}">
+          <button type="submit" class="btn btn-ghost btn-sm"><i class="fa-solid fa-right-from-bracket"></i> Sign out</button>
+        </form>
+      </div>
+    </aside>
+
+    <main id="main" class="content">
+      {% if flash %}
+      <div class="notice notice-{{ flash.k }}" role="status">
+        <i class="fa-solid {{ {'success': 'fa-circle-check', 'error': 'fa-circle-exclamation', 'info': 'fa-circle-info'}[flash.k] | default('fa-circle-info') }}"></i>
+        <span>{{ flash.m }}</span>
+      </div>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <script src="/static/admin.js?v=2"></script>
+</body>
+</html>

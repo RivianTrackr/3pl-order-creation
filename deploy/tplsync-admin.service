@@ -1,0 +1,20 @@
+[Unit]
+Description=3PL Order Sync admin UI
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=tplsync
+Group=tplsync
+WorkingDirectory=/opt/tplsync
+ExecStart=/opt/tplsync/venv/bin/python -m tplsync admin
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/tplsync
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

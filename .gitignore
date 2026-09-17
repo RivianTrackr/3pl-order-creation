@@ -1,0 +1,10 @@
+.env
+*.db
+*.db-shm
+*.db-wal
+*.lock
+venv/
+__pycache__/
+.pytest_cache/
+.claude/
+backups/
