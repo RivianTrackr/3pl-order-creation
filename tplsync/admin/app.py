@@ -707,7 +707,9 @@ def create_app(boot: Bootstrap) -> FastAPI:
                       editing=db.get_shipping_rule(edit) if edit else None,
                       default_billing=values.get("TPL_BILLING_CODE"), carriers=carriers, fetched_at=fetched_at,
                       carriers_json=json.dumps(carrier_match.carriers_to_json(carriers or [])),
-                      check=check, check_base=carrier_match.split_account(check)[0] if check else "",
+                      check=check,
+                      check_base=carrier_match.split_account(check, carrier_match.service_words(carriers or []))[0]
+                      if check else "",
                       check_result=check_result, check_error=check_error,
                       has_client=any_ready_client(db, box) is not None)
 
@@ -736,12 +738,14 @@ def create_app(boot: Bootstrap) -> FastAPI:
     def shipping_save(request: Request, db: Database = Depends(get_db), id: Optional[int] = Form(None),
                       ship_via: str = Form(...), carrier: str = Form(...), mode: str = Form(...),
                       account: str = Form(""), billing_code: str = Form("")):
-        ship_via, typed_account = carrier_match.split_account(" ".join(ship_via.split()))
-        account = account.strip() or ""
         back = f"/shipping?edit={id}" if id else "/shipping"
         carriers, _ = _cached_carriers(db)
         if not carriers:
             return redirect("/shipping", "Load the carrier list from 3PL Central first.", "error")
+        # A trailing account number is dropped: it's read from each PO. Service words ("UPS 3DAY") are kept.
+        ship_via, typed_account = carrier_match.split_account(" ".join(ship_via.split()),
+                                                              carrier_match.service_words(carriers))
+        account = account.strip() or ""
         match = next((c for c in carriers if c.name == carrier), None)
         service = next((sv for sv in (match.services if match else []) if sv.code == mode), None)
         if not ship_via or match is None or service is None:

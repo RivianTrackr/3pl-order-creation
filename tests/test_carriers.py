@@ -23,6 +23,7 @@ CARRIERS = parse_carrier_list({
             {"code": "03", "description": "UPS Ground"},
             {"code": "02", "description": "UPS 2nd Day Air"},
             {"code": "01", "description": "UPS Next Day Air"},
+            {"code": "12", "description": "UPS 3 Day Select"},
         ]},
         {"name": "FedEx", "description": "FedEx", "scacCode": "FDEG", "shipmentServices": [
             {"code": "FEDEX_GROUND", "description": "FedEx Ground"},
@@ -154,13 +155,28 @@ def test_account_number_after_a_service_name_without_an_override():
 
 
 def test_words_are_not_mistaken_for_account_numbers():
-    from tplsync.carriers import split_account
-    assert split_account("UPS GRND C713X7") == ("UPS GRND", "C713X7")
-    assert split_account("UPS NEXT DAY AIR") == ("UPS NEXT DAY AIR", None)     # no digit
-    assert split_account("UPS GRND 12") == ("UPS GRND 12", None)               # too short
-    assert split_account("UPS") == ("UPS", None)
+    from tplsync.carriers import service_words, split_account
+    words = service_words(CARRIERS)
+    assert split_account("UPS GRND C713X7", words) == ("UPS GRND", "C713X7")
+    assert split_account("UPS NEXT DAY AIR", words) == ("UPS NEXT DAY AIR", None)   # no digit
+    assert split_account("UPS GRND 12", words) == ("UPS GRND 12", None)             # too short
+    assert split_account("UPS", words) == ("UPS", None)
+    # Words that name a service in 3PL Central are never read as an account number
+    assert split_account("UPS 3DAY", words) == ("UPS 3DAY", None)
+    assert split_account("FEDEX 2DAY", words) == ("FEDEX 2DAY", None)
     # A service name containing a digit still matches as written first
     assert route("UPS 2nd Day Air").account is None
+
+
+def test_service_names_with_digits_keep_their_last_word():
+    # "3DAY" is the service, not an account, so the shorthand to override is the whole "UPS 3DAY"
+    with pytest.raises(CarrierMatchError, match="Add a Ship Via override for 'UPS 3DAY'"):
+        route("UPS 3DAY C713X7")
+    overrides = {"ups 3day": {"carrier": "UPS", "mode": "12", "scacCode": "UPSN",
+                              "account": None, "billingCode": None}}
+    assert route("UPS 3DAY", overrides).mode == "12"
+    r = route("UPS 3DAY 9W2Y44", overrides)
+    assert (r.mode, r.account) == ("12", "9W2Y44")
 
 
 def test_unmatched_shorthand_with_account_says_what_to_add():

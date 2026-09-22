@@ -298,3 +298,20 @@ def test_override_shorthand_drops_a_typed_account_number(client, boot):
     assert [r["ship_via"] for r in db.list_shipping_rules()] == ["UPS GRND"]
     page = client.get("/shipping?check=UPS+GRND+9W2Y44").text
     assert "account <code>9W2Y44</code>" in page and 'value="UPS GRND"' in page
+
+
+def test_override_keeps_a_service_name_that_ends_in_a_digit(client, boot):
+    import json
+    from tplsync import carriers as cm
+    login(client)
+    db = Database(boot.db_path)
+    carriers = cm.parse_carrier_list({"_embedded": {"http://api.3plCentral.com/rels/properties/carrier": [
+        {"name": "UPS", "shipmentServices": [{"code": "03", "description": "UPS Ground"},
+                                             {"code": "12", "description": "UPS 3 Day Select"}]}]}})
+    db.set_meta("tpl_carriers", json.dumps({"fetched_at": "2026-09-22T16:00:00", "carriers": cm.carriers_to_json(carriers)}))
+    token = csrf(client, "/shipping")
+    resp = client.post("/shipping/save", data={"_csrf": token, "ship_via": "UPS 3DAY", "carrier": "UPS", "mode": "12"})
+    assert "left off the shorthand" not in resp.text
+    assert [r["ship_via"] for r in db.list_shipping_rules()] == ["UPS 3DAY"]
+    page = client.get("/shipping?check=UPS+3DAY+C713X7").text
+    assert "UPS 3 Day Select" in page and "account <code>C713X7</code>" in page

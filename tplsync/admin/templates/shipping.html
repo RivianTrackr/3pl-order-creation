@@ -4,7 +4,7 @@
 <header class="page-header">
   <div>
     <h1 class="page-title">Ship Via</h1>
-    <p class="page-subtitle">Each order ships the way its PO says. The PO's <strong>Ship Via</strong> is matched to the warehouse's carrier and service codes in 3PL Central, e.g. “USPS Priority Mail” becomes USPS with that service's code. A shipping <strong>account number written at the end</strong> (“UPS GRND C713X7”) is used as the order's account. If there's no confident match, the order isn't created and you get an alert.</p>
+    <p class="page-subtitle">Each order ships the way its PO says. The PO's <strong>Ship Via</strong> is matched to the warehouse's carrier and service codes in 3PL Central, e.g. “USPS Priority Mail” becomes USPS with that service's code. A shipping <strong>account number written at the end</strong> (“UPS GRND C713X7”) is used as the order's account; words that name a service (“UPS 3DAY”) are never taken for one. If there's no confident match, the order isn't created and you get an alert.</p>
   </div>
   <form method="post" action="/shipping/refresh-carriers">
     <input type="hidden" name="_csrf" value="{{ csrf }}">

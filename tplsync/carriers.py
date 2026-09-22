@@ -196,13 +196,34 @@ def _check_billing(billing_code: str, carrier: Carrier) -> None:
 ACCOUNT_TOKEN = re.compile(r"[A-Za-z0-9]{4,20}")
 
 
-def split_account(text: str) -> Tuple[str, Optional[str]]:
+def _normalise_words(text: str) -> List[str]:
+    value = text.casefold()
+    for pattern, replacement in _PHRASES:
+        value = re.sub(pattern, replacement, value)
+    return re.findall(r"[a-z0-9]+", value.replace(".", ""))
+
+
+def service_words(carriers: List[Carrier]) -> frozenset:
+    """Every word and code used by a service in 3PL Central, so "UPS 3DAY" isn't read as an account number."""
+    words = set()
+    for carrier in carriers:
+        for service in carrier.services:
+            words.update(_normalise_words(service.description))
+            words.update(_normalise_words(service.code))
+    return frozenset(words)
+
+
+def split_account(text: str, reserved: frozenset = frozenset()) -> Tuple[str, Optional[str]]:
     """"UPS GRND C713X7" -> ("UPS GRND", "C713X7"). The team writes the shipping account number as the last
-    word; it must be 4-20 letters/digits and contain a digit, so words like "AIR" aren't mistaken for one."""
+    word; it must be 4-20 letters/digits and contain a digit, so words like "AIR" aren't mistaken for one.
+    Words that name a service in 3PL Central ("3DAY", "2DAY") are never taken as an account: pass
+    service_words(carriers) as reserved."""
     head, _, last = text.rpartition(" ")
-    if head and ACCOUNT_TOKEN.fullmatch(last) and any(ch.isdigit() for ch in last):
-        return head, last
-    return text, None
+    if not head or not ACCOUNT_TOKEN.fullmatch(last) or not any(ch.isdigit() for ch in last):
+        return text, None
+    if any(word in reserved for word in _normalise_words(last)):
+        return text, None
+    return head, last
 
 
 def _from_override(text: str, o: dict, carriers_by_name: Dict[str, Carrier], billing_code: str,
@@ -234,7 +255,7 @@ def resolve_routing(ship_via: Optional[str], overrides: Dict[str, dict], carrier
         raise CarrierMatchError("3PL Central returned no carriers, so shipping can't be checked.")
     text = " ".join((ship_via or "").split())
     by_name = {_alnum(c.name): c for c in carriers}
-    base, account = split_account(text)
+    base, account = split_account(text, service_words(carriers))
 
     if text.casefold() in overrides:
         return _from_override(text, overrides[text.casefold()], by_name, billing_code, None)
