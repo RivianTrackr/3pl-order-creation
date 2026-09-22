@@ -193,37 +193,73 @@ def _check_billing(billing_code: str, carrier: Carrier) -> None:
                                 f"(allowed: {', '.join(carrier.billing_codes)}).")
 
 
+ACCOUNT_TOKEN = re.compile(r"[A-Za-z0-9]{4,20}")
+
+
+def split_account(text: str) -> Tuple[str, Optional[str]]:
+    """"UPS GRND C713X7" -> ("UPS GRND", "C713X7"). The team writes the shipping account number as the last
+    word; it must be 4-20 letters/digits and contain a digit, so words like "AIR" aren't mistaken for one."""
+    head, _, last = text.rpartition(" ")
+    if head and ACCOUNT_TOKEN.fullmatch(last) and any(ch.isdigit() for ch in last):
+        return head, last
+    return text, None
+
+
+def _from_override(text: str, o: dict, carriers_by_name: Dict[str, Carrier], billing_code: str,
+                   account: Optional[str]) -> Routing:
+    carrier = carriers_by_name.get(_alnum(o.get("carrier")))
+    if carrier is None:
+        raise CarrierMatchError(f"The Ship Via override for {text!r} uses carrier {o.get('carrier')!r}, "
+                                f"which isn't set up in 3PL Central any more.")
+    service = next((s for s in carrier.services if s.code == o.get("mode")), None)
+    if service is None:
+        raise CarrierMatchError(f"The Ship Via override for {text!r} uses service code {o.get('mode')!r}, "
+                                f"which {carrier.name} doesn't have in 3PL Central.")
+    billing = o.get("billingCode") or billing_code
+    _check_billing(billing, carrier)
+    account = account or o.get("account")
+    return Routing(carrier.name, service.code, service.description, o.get("scacCode") or carrier.scac,
+                   account, billing, "override",
+                   f"Ship Via {text!r} -> {carrier.name} / {service.description} ({service.code}) from an override"
+                   + (f", account {account}" if account else ""))
+
+
 def resolve_routing(ship_via: Optional[str], overrides: Dict[str, dict], carriers: List[Carrier],
                     billing_code: str, default_carrier: Optional[str], default_mode: Optional[str]) -> Routing:
-    """Carrier, service code and billing for a PO, validated against 3PL Central."""
+    """Carrier, service code, account and billing for a PO, validated against 3PL Central.
+
+    A shipping account number written as the last word of the Ship Via ("UPS GRND C713X7") is used as the
+    order's account, whether the rest matches an override or a carrier and service directly."""
     if not carriers:
         raise CarrierMatchError("3PL Central returned no carriers, so shipping can't be checked.")
     text = " ".join((ship_via or "").split())
-    key = text.casefold()
     by_name = {_alnum(c.name): c for c in carriers}
+    base, account = split_account(text)
 
-    if key and key in overrides:
-        o = overrides[key]
-        carrier = by_name.get(_alnum(o.get("carrier")))
-        if carrier is None:
-            raise CarrierMatchError(f"The Ship Via override for {text!r} uses carrier {o.get('carrier')!r}, "
-                                    f"which isn't set up in 3PL Central any more.")
-        service = next((s for s in carrier.services if s.code == o.get("mode")), None)
-        if service is None:
-            raise CarrierMatchError(f"The Ship Via override for {text!r} uses service code {o.get('mode')!r}, "
-                                    f"which {carrier.name} doesn't have in 3PL Central.")
-        billing = o.get("billingCode") or billing_code
-        _check_billing(billing, carrier)
-        return Routing(carrier.name, service.code, service.description, o.get("scacCode") or carrier.scac,
-                       o.get("account"), billing, "override",
-                       f"Ship Via {text!r} -> {carrier.name} / {service.description} ({service.code}) from an override")
+    if text.casefold() in overrides:
+        return _from_override(text, overrides[text.casefold()], by_name, billing_code, None)
+    if account and base.casefold() in overrides:
+        return _from_override(text, overrides[base.casefold()], by_name, billing_code, account)
 
     if text:
-        carrier, service_text = find_carrier(text, carriers)
-        service = find_service(service_text, carrier, text)
+        try:
+            carrier, service_text = find_carrier(text, carriers)
+            service = find_service(service_text, carrier, text)
+            account = None
+        except CarrierMatchError:
+            if not account:
+                raise
+            try:
+                carrier, service_text = find_carrier(base, carriers)
+                service = find_service(service_text, carrier, base)
+            except CarrierMatchError:
+                raise CarrierMatchError(
+                    f"Ship Via {text!r} doesn't match a 3PL Central service, with or without {account!r} as the "
+                    f"account number. Add a Ship Via override for {base!r}.") from None
         _check_billing(billing_code, carrier)
-        return Routing(carrier.name, service.code, service.description, carrier.scac, None, billing_code, "po",
-                       f"Ship Via {text!r} -> {carrier.name} / {service.description} ({service.code})")
+        return Routing(carrier.name, service.code, service.description, carrier.scac, account, billing_code, "po",
+                       f"Ship Via {text!r} -> {carrier.name} / {service.description} ({service.code})"
+                       + (f", account {account}" if account else ""))
 
     if not default_carrier:
         raise CarrierMatchError("The PO has no Ship Via and no default carrier is set in Settings.")

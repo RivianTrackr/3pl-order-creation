@@ -4,7 +4,7 @@
 <header class="page-header">
   <div>
     <h1 class="page-title">Ship Via</h1>
-    <p class="page-subtitle">Each order ships the way its PO says. The PO's <strong>Ship Via</strong> is matched to the warehouse's carrier and service codes in 3PL Central, e.g. “USPS Priority Mail” becomes USPS with that service's code. If there's no confident match, the order isn't created and you get an alert.</p>
+    <p class="page-subtitle">Each order ships the way its PO says. The PO's <strong>Ship Via</strong> is matched to the warehouse's carrier and service codes in 3PL Central, e.g. “USPS Priority Mail” becomes USPS with that service's code. A shipping <strong>account number written at the end</strong> (“UPS GRND C713X7”) is used as the order's account. If there's no confident match, the order isn't created and you get an alert.</p>
   </div>
   <form method="post" action="/shipping/refresh-carriers">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
@@ -34,7 +34,7 @@
     <div class="notice notice-success match-result">
       <i class="fa-solid fa-circle-check"></i>
       <span>Ships as <strong>{{ check_result.carrier }}</strong> / <strong>{{ check_result.service_description }}</strong>
-        (service code <code>{{ check_result.mode }}</code>, billing {{ check_result.billing_code }}){% if check_result.source == 'override' %}, from an override{% endif %}.</span>
+        (service code <code>{{ check_result.mode }}</code>, billing {{ check_result.billing_code }}{% if check_result.account %}, account <code>{{ check_result.account }}</code>{% endif %}){% if check_result.source == 'override' %}, from an override{% endif %}.</span>
     </div>
     {% elif check_error %}
     <div class="notice notice-error match-result"><i class="fa-solid fa-circle-xmark"></i><span>{{ check_error }}</span></div>
@@ -45,7 +45,7 @@
 <section class="card">
   <div class="card-header">
     <h2 class="card-title"><i class="fa-solid fa-right-left"></i> Overrides</h2>
-    <span class="muted small">Only needed when a PO's wording doesn't match a 3PL Central service</span>
+    <span class="muted small">Your team's shorthand. Enter it without the account number: “UPS GRND”, not “UPS GRND C713X7”</span>
   </div>
   {% if carriers %}
   <form method="post" action="/shipping/save" class="card-body" id="override-form" data-carriers="{{ carriers_json }}">
@@ -53,8 +53,8 @@
     {% if editing %}<input type="hidden" name="id" value="{{ editing.id }}">{% endif %}
     <div class="form-grid">
       <div class="field">
-        <label for="ship_via">Ship Via on the PO <span class="required">*</span></label>
-        <input class="input" id="ship_via" name="ship_via" value="{{ editing.ship_via if editing else check }}" placeholder="USPS Priority" required maxlength="60">
+        <label for="ship_via">Shorthand on the PO <span class="required">*</span></label>
+        <input class="input" id="ship_via" name="ship_via" value="{{ editing.ship_via if editing else check_base }}" placeholder="UPS GRND" required maxlength="60">
       </div>
       <div class="field">
         <label for="carrier">3PL Central carrier <span class="required">*</span></label>
@@ -79,7 +79,7 @@
         </select>
       </div>
       <div class="field">
-        <label for="account">Account #</label>
+        <label for="account">Default account #</label>
         <input class="input" id="account" name="account" value="{{ (editing.account or '') if editing else '' }}" maxlength="60">
       </div>
     </div>
@@ -93,7 +93,7 @@
   {% if rules %}
   <div class="table-wrap {{ 'card-body-divided' if carriers }}">
     <table class="table">
-      <thead><tr><th>Ship Via on the PO</th><th>Carrier</th><th>Service code</th><th>Billing</th><th>Account</th><th></th></tr></thead>
+      <thead><tr><th>Shorthand</th><th>Carrier</th><th>Service code</th><th>Billing</th><th>Default account</th><th></th></tr></thead>
       <tbody>
         {% for r in rules %}
         <tr>
@@ -101,7 +101,7 @@
           <td>{{ r.carrier }}</td>
           <td class="mono">{{ r.mode or '-' }}</td>
           <td>{{ r.billing_code or 'Default' }}</td>
-          <td class="mono">{{ r.account or '-' }}</td>
+          <td class="mono">{{ r.account or 'From the PO' }}</td>
           <td class="row-actions">
             <a class="btn btn-secondary btn-sm" href="/shipping?edit={{ r.id }}"><i class="fa-solid fa-pen"></i><span class="sr-only">Edit {{ r.ship_via }}</span></a>
             <form method="post" action="/shipping/{{ r.id }}/delete" data-confirm="Delete the override for “{{ r.ship_via }}”?">
@@ -115,7 +115,7 @@
     </table>
   </div>
   {% elif carriers %}
-  <p class="muted small card-footnote">No overrides. That's normal when POs use the same names as 3PL Central.</p>
+  <p class="muted small card-footnote">No overrides yet. Add one per shorthand your team uses; any account number they add after it is picked up automatically.</p>
   {% else %}
   <div class="empty-state"><p>Overrides can be added once the carrier list is loaded.</p></div>
   {% endif %}

@@ -131,3 +131,39 @@ def test_carrier_description_words_are_not_ignored_in_service_names():
     ]}})
     r = resolve_routing("UPSMI Expedited", {}, carriers, "Prepaid", None, None)
     assert r.mode == "2"
+
+
+def test_account_number_at_the_end_of_an_override_shorthand():
+    overrides = {"ups grnd": {"carrier": "UPS", "mode": "03", "billingCode": "BillThirdParty"}}
+    r = route("UPS GRND C713X7", overrides, billing="Prepaid")
+    assert (r.carrier, r.mode, r.account, r.billing_code, r.source) == ("UPS", "03", "C713X7", "BillThirdParty", "override")
+    assert r.as_payload()["account"] == "C713X7"
+    assert "account C713X7" in r.explanation
+    # The shorthand alone still works, with the override's saved account (none here)
+    assert route("UPS GRND", overrides).account is None
+    # A saved account on the override is replaced by the one on the PO
+    overrides["ups grnd"]["account"] = "DEFAULT1"
+    assert route("ups  grnd 9W2Y44", overrides).account == "9W2Y44"
+    assert route("UPS GRND", overrides).account == "DEFAULT1"
+
+
+def test_account_number_after_a_service_name_without_an_override():
+    r = route("UPS Ground C713X7")
+    assert (r.carrier, r.mode, r.account) == ("UPS", "03", "C713X7")
+    assert route("UPS Ground").account is None
+
+
+def test_words_are_not_mistaken_for_account_numbers():
+    from tplsync.carriers import split_account
+    assert split_account("UPS GRND C713X7") == ("UPS GRND", "C713X7")
+    assert split_account("UPS NEXT DAY AIR") == ("UPS NEXT DAY AIR", None)     # no digit
+    assert split_account("UPS GRND 12") == ("UPS GRND 12", None)               # too short
+    assert split_account("UPS") == ("UPS", None)
+    # A service name containing a digit still matches as written first
+    assert route("UPS 2nd Day Air").account is None
+
+
+def test_unmatched_shorthand_with_account_says_what_to_add():
+    import pytest
+    with pytest.raises(CarrierMatchError, match="Add a Ship Via override for 'UPS GRND'"):
+        route("UPS GRND C713X7")

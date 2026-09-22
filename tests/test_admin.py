@@ -282,3 +282,19 @@ def test_dismissed_po_is_hidden_and_never_processed(client, boot):
     assert "7001-1" in client.get("/?state=dismissed").text
     client.post("/po/501/retry", data={"_csrf": token})          # Restore
     assert db.get(501)["state"] == "error"
+
+
+def test_override_shorthand_drops_a_typed_account_number(client, boot):
+    import json
+    from tplsync import carriers as cm
+    login(client)
+    db = Database(boot.db_path)
+    carriers = cm.parse_carrier_list({"_embedded": {"http://api.3plCentral.com/rels/properties/carrier": [
+        {"name": "UPS", "shipmentServices": [{"code": "03", "description": "UPS Ground"}]}]}})
+    db.set_meta("tpl_carriers", json.dumps({"fetched_at": "2026-09-22T16:00:00", "carriers": cm.carriers_to_json(carriers)}))
+    token = csrf(client, "/shipping")
+    resp = client.post("/shipping/save", data={"_csrf": token, "ship_via": "UPS GRND C713X7", "carrier": "UPS", "mode": "03"})
+    assert "C713X7 was left off the shorthand" in resp.text
+    assert [r["ship_via"] for r in db.list_shipping_rules()] == ["UPS GRND"]
+    page = client.get("/shipping?check=UPS+GRND+9W2Y44").text
+    assert "account <code>9W2Y44</code>" in page and 'value="UPS GRND"' in page

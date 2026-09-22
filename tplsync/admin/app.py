@@ -707,7 +707,8 @@ def create_app(boot: Bootstrap) -> FastAPI:
                       editing=db.get_shipping_rule(edit) if edit else None,
                       default_billing=values.get("TPL_BILLING_CODE"), carriers=carriers, fetched_at=fetched_at,
                       carriers_json=json.dumps(carrier_match.carriers_to_json(carriers or [])),
-                      check=check, check_result=check_result, check_error=check_error,
+                      check=check, check_base=carrier_match.split_account(check)[0] if check else "",
+                      check_result=check_result, check_error=check_error,
                       has_client=any_ready_client(db, box) is not None)
 
     @app.post("/shipping/refresh-carriers", dependencies=[Depends(csrf_protect)])
@@ -735,7 +736,8 @@ def create_app(boot: Bootstrap) -> FastAPI:
     def shipping_save(request: Request, db: Database = Depends(get_db), id: Optional[int] = Form(None),
                       ship_via: str = Form(...), carrier: str = Form(...), mode: str = Form(...),
                       account: str = Form(""), billing_code: str = Form("")):
-        ship_via = " ".join(ship_via.split())
+        ship_via, typed_account = carrier_match.split_account(" ".join(ship_via.split()))
+        account = account.strip() or ""
         back = f"/shipping?edit={id}" if id else "/shipping"
         carriers, _ = _cached_carriers(db)
         if not carriers:
@@ -755,7 +757,9 @@ def create_app(boot: Bootstrap) -> FastAPI:
                 return redirect(back, f"An override for “{ship_via}” already exists.", "error")
             raise
         db.audit(username(request), "shipping.save", f"{ship_via} -> {match.name} / {service.description} ({service.code})")
-        return redirect("/shipping", f"“{ship_via}” now ships as {match.name} / {service.description}.")
+        note = (f" {typed_account} was left off the shorthand: the account number is read from each PO."
+                if typed_account else "")
+        return redirect("/shipping", f"“{ship_via}” now ships as {match.name} / {service.description}.{note}")
 
     @app.post("/shipping/{rule_id}/delete", dependencies=[Depends(csrf_protect)])
     def shipping_delete(request: Request, rule_id: int, db: Database = Depends(get_db)):
