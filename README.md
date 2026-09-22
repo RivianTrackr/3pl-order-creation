@@ -50,7 +50,8 @@ Any error sends one alert email per distinct problem and is retried on the next 
 ```bash
 git clone <repo> ~/3pl-order-creation && cd ~/3pl-order-creation
 sudo bash deploy/setup.sh                         # installs to /opt/tplsync, generates keys, starts the admin
-sudo -u tplsync /opt/tplsync/venv/bin/python -m tplsync create-user yourname
+sudo -u tplsync bash -c 'cd /opt/tplsync && ./venv/bin/python -m tplsync create-user yourname'
+# every CLI command runs from /opt/tplsync; the systemd units set that themselves
 ```
 
 Then:

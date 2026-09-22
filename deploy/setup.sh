@@ -44,7 +44,8 @@ cat <<MSG
 
 Installed to $APP_DIR. The admin UI is on 127.0.0.1:8120.
 Next:
-  1. Create a login:   sudo -u tplsync $APP_DIR/venv/bin/python -m tplsync create-user <name>
+  1. Create a login:   sudo -u tplsync bash -c 'cd $APP_DIR && ./venv/bin/python -m tplsync create-user <name>'
+                       (every CLI command runs from $APP_DIR)
   2. Nginx + HTTPS:    see $APP_DIR/deploy/nginx-tplsync.conf
   3. In the admin UI:  Settings, Clients, Shipping rules, test a PO, then "Go live now"
   4. Start the timer:  systemctl enable --now tplsync.timer
