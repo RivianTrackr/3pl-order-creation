@@ -319,3 +319,13 @@ def test_po_sku_with_a_size_is_matched_to_the_3pl_item(env):
     assert tpl.created[0]["orderItems"] == [{"itemIdentifier": {"sku": "TEE-INV-15570"}, "qty": 4}]
     [matched] = [e for e in db.list_events(po_id=900) if e["event"] == "sku.matched"]
     assert "TEE-INV-2XL -> TEE-INV-15570" in matched["message"]
+
+
+def test_unknown_user_login_is_explained(env):
+    from tplsync.tpl import UserLoginRejected
+    proc, db, syncore, tpl, notifier = env([make_po()])
+    tpl.fail_create = UserLoginRejected("someone@example.com")
+    proc.run(NOW)
+    error = db.get(900)["last_error"]
+    assert "isn't a user in this warehouse's 3PL Central" in error and "someone@example.com" in error
+    assert "User login" in "\n".join(notifier.sent[0][1])

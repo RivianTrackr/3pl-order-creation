@@ -34,7 +34,9 @@ SETTINGS: Tuple[SettingDef, ...] = (
 
     SettingDef("TPL_BASE_URL", "API base URL", "tpl", default="https://secure-wms.com"),
     SettingDef("TPL_USER_LOGIN", "User login", "tpl", required=True,
-               help="3PL Central user login (or numeric login ID) used for all clients unless a client overrides it."),
+               help="A user in the warehouse's 3PL Central that orders are created as: the login name you'd type "
+                    "to sign in to 3PL Manager, or its numeric user login ID. It needs permission to create orders. "
+                    "Used for all clients unless a client overrides it."),
     SettingDef("TPL_FACILITY_NAME", "Warehouse name", "tpl", required=True,
                help="The warehouse in 3PL Central that orders are created for, exactly as it's named there."),
     SettingDef("TPL_FACILITY_ID", "Warehouse ID", "tpl", "int",

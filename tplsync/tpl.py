@@ -12,6 +12,18 @@ from .http import ApiError, request
 TOKEN_TTL_SECONDS = 45 * 60  # docs say tokens last 30-60 min; refresh early
 
 
+class UserLoginRejected(RuntimeError):
+    """3PL Central signed us in, but not as a user that exists in the warehouse's system."""
+
+    def __init__(self, user_login: str):
+        self.user_login = user_login
+        super().__init__(
+            f"3PL Central rejected the order because the user login {user_login!r} isn't a user in this "
+            f"warehouse's 3PL Central. Set Settings > 3PL Central > User login to a 3PL Central login name "
+            f"(what you'd type to sign in to 3PL Manager) or its numeric user login ID, with permission to create "
+            f"orders. The warehouse or Extensiv can provide one. No order was created.")
+
+
 class TplCentralClient:
     def __init__(self, base_url: str, creds: TplClient, default_user_login: str):
         self.base_url = base_url.rstrip("/")
@@ -148,7 +160,12 @@ class TplCentralClient:
         return None
 
     def create_order(self, payload: dict) -> int:
-        resp = self._call("POST", "/orders", json=payload)
+        try:
+            resp = self._call("POST", "/orders", json=payload)
+        except ApiError as exc:
+            if "UserLogin" in exc.body:
+                raise UserLoginRejected(self.user_login) from exc
+            raise
         ro = resp.json().get("readOnly") or {}
         return int(ro["orderId"])
 
