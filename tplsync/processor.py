@@ -240,7 +240,7 @@ class Processor:
     def handle(self, po_id: int, job_id: int, last_modified: Optional[str], now: datetime,
                force: bool = False) -> None:
         rec = self.db.get(po_id)
-        if rec is not None and rec["state"] in ("done", "failed") and not force:
+        if rec is not None and rec["state"] in ("done", "failed", "dismissed") and not force:
             return
 
         if not force and not self.s.dry_run and not self._settled(rec, po_id, job_id, last_modified, now):

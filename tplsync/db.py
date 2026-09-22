@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     client_id      TEXT,
     last_modified  TEXT,
     first_seen     TEXT NOT NULL,
-    state          TEXT NOT NULL,   -- waiting | skipped | processing | error | failed | done
+    state          TEXT NOT NULL,   -- waiting | skipped | processing | error | failed | done | dismissed
     skip_reason    TEXT,
     order_id       INTEGER,         -- 3PL Central transaction number
     completion     TEXT,            -- completed | open_short
@@ -250,7 +250,7 @@ class Database:
             where.append("state = ?")
             params.append(state)
         elif not include_skipped:
-            where.append("state != 'skipped'")
+            where.append("state NOT IN ('skipped', 'dismissed')")
         sql = "SELECT * FROM purchase_orders"
         if where:
             sql += " WHERE " + " AND ".join(where)
@@ -276,6 +276,12 @@ class Database:
               SUM(state IN ('waiting', 'processing')) AS pending
             FROM purchase_orders""").fetchone()
         return {k: row[k] or 0 for k in row.keys()}
+
+    def dismiss(self, po_id: int, username: Optional[str]) -> None:
+        """Stop processing a PO and hide it from the dashboard. Retry brings it back."""
+        with self.conn:
+            self.conn.execute("UPDATE purchase_orders SET state = 'dismissed', skip_reason = ?, updated_at = ? "
+                              "WHERE po_id = ?", (f"Dismissed by {username or 'an admin'}", utcnow(), po_id))
 
     def reset(self, po_id: int) -> None:
         """Retry a failed PO. Keeps order_id so no duplicate order is created."""

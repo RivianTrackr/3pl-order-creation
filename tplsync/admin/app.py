@@ -35,7 +35,7 @@ HERE = Path(__file__).resolve().parent
 PUBLIC_PATHS = ("/login", "/static/", "/healthz")
 STATE_LABELS = {
     "waiting": "Waiting", "processing": "Processing", "error": "Retrying", "failed": "Failed",
-    "done": "Done", "skipped": "Skipped",
+    "done": "Done", "skipped": "Skipped", "dismissed": "Dismissed",
 }
 
 
@@ -215,7 +215,7 @@ def create_app(boot: Bootstrap) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def dashboard(request: Request, state: Optional[str] = None, db: Database = Depends(get_db)):
         values = setting_values(db, box)
-        if state not in (None, "", "done", "problems", "waiting", "open_short", "skipped"):
+        if state not in (None, "", "done", "problems", "waiting", "open_short", "skipped", "dismissed"):
             state = None
         checklist = [
             ("Settings complete", not missing_required(values), "/settings"),
@@ -223,7 +223,7 @@ def create_app(boot: Bootstrap) -> FastAPI:
             ("Go-live date set", bool(db.get_meta("start_date")), None),
         ]
         return render(request, db, "dashboard.html",
-                      rows=db.recent(100, state=state or None, include_skipped=state == "skipped"),
+                      rows=db.recent(100, state=state or None, include_skipped=state in ("skipped", "dismissed")),
                       counts=db.counts(), state=state or "", checklist=checklist,
                       setup_done=all(ok for _, ok, _ in checklist),
                       start_date=db.get_meta("start_date"),
@@ -242,6 +242,16 @@ def create_app(boot: Bootstrap) -> FastAPI:
         db.audit(username(request), "po.retry", str(po_id))
         from_detail = urlparse(request.headers.get("referer", "")).path == f"/po/{po_id}"
         return redirect(f"/po/{po_id}" if from_detail else "/", f"PO {po_id} will be retried on the next run.")
+
+    @app.post("/po/{po_id}/dismiss", dependencies=[Depends(csrf_protect)])
+    def dismiss_po(request: Request, po_id: int, db: Database = Depends(get_db)):
+        row = db.get(po_id)
+        if not row:
+            raise HTTPException(404, "Purchase order not found.")
+        db.dismiss(po_id, username(request))
+        db.audit(username(request), "po.dismiss", f"{row['reference'] or po_id}")
+        return redirect("/", f"{row['reference'] or f'PO {po_id}'} dismissed. It won't be processed; "
+                             f"find it under Dismissed to bring it back.")
 
     @app.post("/go-live", dependencies=[Depends(csrf_protect)])
     def go_live(request: Request, db: Database = Depends(get_db)):

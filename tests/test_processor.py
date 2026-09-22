@@ -329,3 +329,10 @@ def test_unknown_user_login_is_explained(env):
     error = db.get(900)["last_error"]
     assert "isn't a user in this warehouse's 3PL Central" in error and "someone@example.com" in error
     assert "User login" in "\n".join(notifier.sent[0][1])
+
+
+def test_dismissed_po_is_not_picked_up_again(env):
+    proc, db, syncore, tpl, _ = env([make_po()])
+    db.upsert(900, 12345, state="dismissed", last_modified="2026-09-17 12:05:00")
+    proc.run(NOW)
+    assert tpl.created == [] and db.get(900)["state"] == "dismissed"

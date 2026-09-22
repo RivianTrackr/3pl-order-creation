@@ -267,3 +267,18 @@ def test_customer_id_is_looked_up_from_the_login(client, boot, monkeypatch):
     [row] = db.list_clients()
     assert (row["customer_id"], row["tpl_customer_name"], row["active"]) == (500, "Example Book Company", 1)
     assert seen == {"client_id": "cid", "secret": "sec", "login": "apiuser"}
+
+
+def test_dismissed_po_is_hidden_and_never_processed(client, boot):
+    login(client)
+    db = Database(boot.db_path)
+    db.upsert(501, 7001, state="error", reference="7001-1", last_error="bad data", attempts=3)
+    db.upsert(502, 7002, state="done", reference="7002-1", order_id=9, completion="completed")
+    token = csrf(client, "/")
+    client.post("/po/501/dismiss", data={"_csrf": token})
+    assert db.get(501)["state"] == "dismissed"
+    page = client.get("/").text
+    assert "7002-1" in page and "7001-1" not in page
+    assert "7001-1" in client.get("/?state=dismissed").text
+    client.post("/po/501/retry", data={"_csrf": token})          # Restore
+    assert db.get(501)["state"] == "error"
