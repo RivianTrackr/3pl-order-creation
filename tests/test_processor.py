@@ -200,14 +200,15 @@ def test_settle_period_waits_for_po_to_stop_changing(env):
     assert len(tpl.created) == 1
 
 
-def test_missing_client_credentials_alerts_once(env):
+def test_po_from_a_client_that_isnt_set_up_is_skipped(env):
     proc, db, syncore, tpl, notifier = env([make_po()], client_id=4444)
     proc.run(NOW)
     proc.run(NOW)
-    assert tpl.created == []
-    assert db.get(900)["state"] == "error" and db.get(900)["attempts"] == 0
-    assert len(notifier.sent) == 1 and "Northwind" in "\n".join(notifier.sent[0][1])
-
+    assert tpl.created == [] and notifier.sent == []            # skipped quietly, no alert
+    row = db.get(900)
+    assert row["state"] == "skipped" and "isn't set up for 3PL Central" in row["skip_reason"]
+    [client] = [c for c in db.list_clients() if c["syncore_group_id"] == "777"]
+    assert client["name"] == "Northwind" and client["source"] == "syncore"   # listed for setup
 
 def test_failure_after_create_resumes_without_duplicate(env):
     proc, db, syncore, tpl, notifier = env([make_po()])
@@ -244,16 +245,14 @@ def test_dry_run_changes_nothing(env):
     assert db.get(900) is None
 
 
-def test_incomplete_client_waits_without_using_attempts(env):
+def test_skipped_po_can_be_processed_once_the_client_is_ready(env):
     proc, db, syncore, tpl, notifier = env([make_po()], client_id=4444)
-    for _ in range(MAX_ATTEMPTS + 3):
-        proc.run(NOW)
-    row = db.get(900)
-    assert row["state"] == "error" and row["attempts"] == 0
-    assert len(notifier.sent) == 1 and "once the client is finished" in "\n".join(notifier.sent[0][1])
-    [client] = [c for c in db.list_clients() if c["syncore_group_id"] == "777"]
-    assert client["name"] == "Northwind" and client["source"] == "syncore" and client["active"] == 0
-
+    proc.run(NOW)
+    assert db.get(900)["state"] == "skipped"
+    syncore.client_id = 1213                   # now resolves to a set-up client
+    db.reset(900)                              # "Process" on the dashboard
+    proc.run(NOW)
+    assert len(tpl.created) == 1 and db.get(900)["state"] == "done"
 
 def test_any_contact_in_the_client_group_uses_the_same_client(env):
     first, second = make_po(po_id=900), make_po(po_id=901)

@@ -61,7 +61,7 @@ def build_summary(db: Database, settings: Settings, now: datetime) -> List[str]:
         lines += ["", f"Needs attention ({len(problems)}):"]
         lines += [f"  {r['reference'] or r['po_id']}: {(r['last_error'] or '')[:160]}" for r in problems[:25]]
     if waiting_clients:
-        lines += ["", "Clients with POs waiting to be set up:"]
+        lines += ["", "Clients sending POs that aren't set up (their POs are skipped):"]
         lines += [f"  {r['name']}: needs {', '.join(client_missing(r))}" for r in waiting_clients[:25]]
     if not (open_orders or problems or waiting_clients):
         lines += ["", "Nothing needs attention."]

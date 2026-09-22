@@ -323,20 +323,17 @@ class Processor:
             raise RuntimeError("The Syncore job has no client.")
         group_id, group_name = self.client_group(client_id)
         if not group_id:
-            raise ClientNotReady(
-                f"Syncore client {client_id} ({client_label}) isn't in a client group, so it can't be matched to a "
-                f"3PL Central client. Add the contact to its company's client group in Syncore.")
+            raise SkipPO(f"Syncore client {client_id} ({client_label}) isn't in a client group, so it can't be "
+                         f"matched to a 3PL Central client", ref, {"syncore_client": client_id})
         row = self.db.link_syncore_group(group_id, group_name)
         creds = self.s.clients.get(group_id)
         if creds is None:
+            # Not set up for 3PL Central: skip the PO. The client is listed on the Clients page (added above if
+            # it's new), and a skipped PO can be sent later with "Process" once the client is finished.
             missing = [m for m in client_missing(row) if m != "Syncore client group"]
-            self.event(po_id, job_id, ref, "warning", "client.incomplete",
-                       f"Client {row['name']} (Syncore group {group_name}) isn't set up yet: missing "
-                       f"{', '.join(missing)}", {"client_pk": row["id"], "missing": missing,
-                                                 "syncore_client": client_id, "syncore_group": group_id})
-            raise ClientNotReady(
-                f"{row['name']} (Syncore client group {group_name}) needs {', '.join(missing)} before its orders "
-                f"can go to 3PL Central. Finish it on the Clients page.")
+            raise SkipPO(f"client {row['name']} isn't set up for 3PL Central (missing {', '.join(missing)})", ref,
+                         {"client_pk": row["id"], "missing": missing, "syncore_client": client_id,
+                          "syncore_group": group_id})
         if not creds.active:
             raise ClientNotReady(f"{creds.name} is paused on the Clients page.")
         tpl = self.tpl(creds)

@@ -241,7 +241,7 @@ def create_app(boot: Bootstrap) -> FastAPI:
         db.reset(po_id)
         db.audit(username(request), "po.retry", str(po_id))
         from_detail = urlparse(request.headers.get("referer", "")).path == f"/po/{po_id}"
-        return redirect(f"/po/{po_id}" if from_detail else "/", f"PO {po_id} will be retried on the next run.")
+        return redirect(f"/po/{po_id}" if from_detail else "/", f"PO {po_id} will be processed on the next run.")
 
     @app.post("/po/{po_id}/dismiss", dependencies=[Depends(csrf_protect)])
     def dismiss_po(request: Request, po_id: int, db: Database = Depends(get_db)):

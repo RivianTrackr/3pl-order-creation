@@ -106,10 +106,10 @@
           <td class="cell-detail">{{ r.last_error or r.skip_reason or '' }}</td>
           <td class="nowrap">{{ localtime(r.updated_at) }}</td>
           <td class="row-actions">
-            {% if r.state in ('failed', 'error', 'dismissed') %}
+            {% if r.state in ('failed', 'error', 'dismissed', 'skipped') %}
             <form method="post" action="/po/{{ r.po_id }}/retry">
               <input type="hidden" name="_csrf" value="{{ csrf }}">
-              <button class="btn btn-secondary btn-sm"><i class="fa-solid fa-rotate-right"></i> {{ 'Restore' if r.state == 'dismissed' else 'Retry' }}</button>
+              <button class="btn btn-secondary btn-sm"><i class="fa-solid fa-rotate-right"></i> {{ {'dismissed': 'Restore', 'skipped': 'Process'}.get(r.state, 'Retry') }}</button>
             </form>
             {% endif %}
             {% if r.state in ('failed', 'error', 'waiting') %}

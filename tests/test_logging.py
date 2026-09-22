@@ -46,8 +46,8 @@ def test_skips_and_errors_are_logged(env):  # noqa: F811
     proc.run(NOW)
     [skip] = [e for e in db.list_events(po_id=1) if e["event"] == "po.skipped"]
     assert "Another Vendor Co" in skip["message"]
-    [err] = [e for e in db.list_events(po_id=2) if e["event"] == "po.error"]
-    assert err["level"] == "error" and "Northwind" in err["message"] and "Waiting for client setup" in err["message"]
+    [skipped] = [e for e in db.list_events(po_id=2) if e["event"] == "po.skipped"]
+    assert "Northwind isn't set up for 3PL Central" in skipped["message"]
 
 
 def test_dry_run_logs_preview_without_changing_state(env):  # noqa: F811
