@@ -43,9 +43,10 @@ def order_lines(po: dict, sku_pattern: str) -> "OrderedDict[str, float]":
 
     Two layouts are supported:
 
-    * The inventory SKU is in a comment line's description ("SKU: EBC006INVJ-2XL")
-      right after the product line. The SKU line usually has no quantity, so it
-      takes the quantity of the product line above it.
+    * The inventory SKU is in a comment line's description ("SKU: EBC006INVJ-2XL").
+      The SKU line has no quantity, so it takes its group's: the nearest top-level
+      line above it, whose quantity is its own or sits on its Color/Size lines
+      (on-demand POs put an "ON DEMAND FROM ..." header there).
     * The inventory SKU is in the line's own SKU field. A matching parent whose
       matching children carry their own quantities (e.g. sizes) is skipped so it
       isn't counted twice.
@@ -60,23 +61,51 @@ def order_lines(po: dict, sku_pattern: str) -> "OrderedDict[str, float]":
         lines[sku] = lines.get(sku, 0.0) + qty
 
     # Layout 1: "SKU: ..." description lines.
-    claimed = set()   # product line ids whose quantity was used by a SKU line
+    children: Dict[object, List[dict]] = {}
+    for li in items:
+        if li.get("parent_id"):
+            children.setdefault(li["parent_id"], []).append(li)
+
+    def leaves(line_id) -> List[dict]:
+        """The Color/Size descendants that actually carry a quantity."""
+        found = []
+        for child in children.get(line_id, []):
+            below = leaves(child.get("line_id"))
+            found += below if below else ([child] if _qty(child.get("quantity")) > 0 else [])
+        return found
+
+    def leaf_quantity(line_id) -> float:
+        return sum(_qty(leaf.get("quantity")) for leaf in leaves(line_id))
+
+    claimed = set()   # group/product line ids whose quantity was used by a SKU line
     for index, li in enumerate(items):
         sku = tagged_sku(li)
         if not sku or not rx.search(sku):
             continue
         qty = _qty(li.get("quantity"))
         if qty <= 0:
-            product = next((p for p in reversed(items[:index])
-                            if _qty(p.get("quantity")) > 0 and not tagged_sku(p)), None)
-            if product is None:
+            # The SKU belongs to the nearest group above it: a top-level line whose quantity is either
+            # its own or spread over its Color/Size lines ("ON DEMAND FROM ..." headers work this way).
+            group = next((p for p in reversed(items[:index])
+                          if p.get("parent_id") == 0 and not tagged_sku(p)
+                          and (leaf_quantity(p.get("line_id")) > 0 or _qty(p.get("quantity")) > 0)), None)
+            if group is None:
+                group = next((p for p in reversed(items[:index])
+                              if _qty(p.get("quantity")) > 0 and not tagged_sku(p)), None)
+            if group is None:
                 raise LineMappingError(f"Found SKU {sku} but no product line with a quantity above it.")
-            if product.get("line_id") in claimed:
+            if group.get("line_id") in claimed:
                 raise LineMappingError(
-                    f"Several SKU lines follow the product line {product.get('description')!r}, so the "
-                    f"quantity for {sku} is ambiguous. Give each SKU line its own quantity.")
-            claimed.add(product.get("line_id"))
-            qty = _qty(product.get("quantity"))
+                    f"Several SKU lines belong to {group.get('description')!r}, so the quantity for {sku} is "
+                    f"ambiguous. Give each SKU line its own quantity.")
+            claimed.add(group.get("line_id"))
+            variants = leaves(group.get("line_id"))
+            if len(variants) > 1:
+                raise LineMappingError(
+                    f"SKU {sku} covers {len(variants)} colors/sizes "
+                    f"({', '.join(str(v.get('description')) for v in variants)}), and each is a different "
+                    f"warehouse item. Give each variant its own SKU line.")
+            qty = leaf_quantity(group.get("line_id")) or _qty(group.get("quantity"))
         add(sku, qty)
 
     # Layout 2: SKU field on the line itself.

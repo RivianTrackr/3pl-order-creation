@@ -126,3 +126,39 @@ def test_country_and_contact_from_critical_comments():
     assert mapping.contact_from_text("Call 555-123-4567 first")["phoneNumber"] == "555-123-4567"
     assert mapping.country_code("ca") == "CA" and mapping.country_code("") == "US"
 
+
+
+def test_on_demand_groups_take_quantity_from_their_color_and_size_lines():
+    # Shape of a real on-demand PO: header, product, SKU line, then Color/Size children of the header.
+    items = [
+        {"line_id": 1, "parent_id": 0, "type": "Comment", "sku": "", "description": "ON DEMAND FROM HANDSTANDS", "quantity": 0},
+        {"line_id": 2, "parent_id": None, "type": "Comment", "sku": "70007 / Handstands", "description": "Mini Speaker", "quantity": 0},
+        {"line_id": 3, "parent_id": None, "type": "Comment", "sku": "", "description": "SKU: WWD119OD-BLACK", "quantity": 0},
+        {"line_id": 4, "parent_id": 1, "type": "Color", "sku": "", "description": "Black", "quantity": 1},
+        {"line_id": 5, "parent_id": 0, "type": "Comment", "sku": "", "description": "ON DEMAND FROM PRINTFUL", "quantity": 0},
+        {"line_id": 6, "parent_id": None, "type": "Comment", "sku": "18500 / Printful", "description": "Hoodie", "quantity": 0},
+        {"line_id": 7, "parent_id": None, "type": "Comment", "sku": "", "description": "SKU: WWD265OD-M-SGRY", "quantity": 0},
+        {"line_id": 8, "parent_id": 5, "type": "Color", "sku": "", "description": "Sport Grey", "quantity": 0},
+        {"line_id": 9, "parent_id": 8, "type": "Size", "sku": "", "description": "M", "quantity": 2},
+        {"line_id": 10, "parent_id": 0, "type": "Comment", "sku": "", "description": "ON DEMAND FROM STAHLS", "quantity": 0},
+        {"line_id": 11, "parent_id": None, "type": "Comment", "sku": "BP20046", "description": "Bottle", "quantity": 0},
+        {"line_id": 12, "parent_id": 10, "type": "Color", "sku": "", "description": "Clear", "quantity": 1},
+    ]
+    # The Stahls group has no SKU line, so it isn't an inventory item and is left out.
+    assert dict(mapping.order_lines(po(line_items=items), "INV|OD")) == {"WWD119OD-BLACK": 1, "WWD265OD-M-SGRY": 2}
+
+
+def test_product_line_with_its_own_sizes_needs_one_variant_per_sku():
+    items = [
+        {"line_id": 1, "parent_id": 0, "type": "Comment", "sku": "EB200", "description": "Fleece Jacket", "quantity": 0},
+        {"line_id": 2, "parent_id": None, "type": "Comment", "sku": "", "description": "SKU: WDT511OD-3", "quantity": 0},
+        {"line_id": 3, "parent_id": 1, "type": "Color", "sku": "", "description": "Grey Steel", "quantity": 0},
+        {"line_id": 4, "parent_id": 3, "type": "Size", "sku": "", "description": "M", "quantity": 1},
+        {"line_id": 5, "parent_id": 3, "type": "Size", "sku": "", "description": "L", "quantity": 2},
+        {"line_id": 6, "parent_id": None, "type": "Comment", "sku": "", "description": "Item Value : $79.99", "quantity": 0},
+    ]
+    import pytest
+    with pytest.raises(mapping.LineMappingError, match="covers 2 colors/sizes"):
+        mapping.order_lines(po(line_items=items), "INV|OD")
+    items[4]["quantity"] = 0          # a single size: fine
+    assert dict(mapping.order_lines(po(line_items=items), "INV|OD")) == {"WDT511OD-3": 1}

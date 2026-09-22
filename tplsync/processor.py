@@ -462,7 +462,10 @@ class Processor:
         self._send_alert(po_id, po["job_number"], ref, f"[3PL] Order {ref} left Open - insufficient inventory", lines)
 
     def _record_error(self, po_id: int, job_id: int, exc: Exception) -> None:
-        log.exception("PO %s (job %s) failed", po_id, job_id)
+        if isinstance(exc, (ClientNotReady, ApiError, mapping.LineMappingError)) or type(exc) is RuntimeError:
+            log.error("PO %s (job %s) not processed: %s", po_id, job_id, exc)   # expected: no traceback needed
+        else:
+            log.exception("PO %s (job %s) failed", po_id, job_id)
         self.stats["errors"] += 1
         rec = self.db.get(po_id)
         ref = rec["reference"] if rec else None
