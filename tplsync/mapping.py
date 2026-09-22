@@ -172,13 +172,6 @@ def build_order(po: dict, job: dict, lines: Dict[str, float], customer_id: int,
         if po.get(field):
             notes.append(" ".join(po[field].split()))
 
-    shipping_notes = [s for s in (
-        po.get("ship_via") and f"Ship Via: {po['ship_via']}",
-        po.get("in_hand_date") and f"In hand: {po['in_hand_date']}",
-        po.get("fob") and f"FOB: {po['fob']}",
-        po.get("shipping_and_instructions") and " ".join(po["shipping_and_instructions"].split()),
-    ) if s]
-
     payload = {
         "customerIdentifier": {"id": customer_id},
         "facilityIdentifier": {"id": facility_id} if facility_id else {"name": facility_name},
@@ -186,8 +179,9 @@ def build_order(po: dict, job: dict, lines: Dict[str, float], customer_id: int,
         "poNum": ref,
         "deferNotification": True,  # create incomplete; we complete after the stock check
         "billingCode": billing_code,
+        # notes = Warehouse Instructions in 3PL Manager. shippingNotes (Carrier Instructions) is
+        # deliberately left off: the PO's instructions belong in one place.
         "notes": _clip(" | ".join(notes), 1000),
-        "shippingNotes": _clip(" | ".join(shipping_notes), 1000),
         "routingInfo": routing,
         "shipTo": {
             "companyName": _clip(ship_to.get("business_name") or ship_to.get("name"), 100),

@@ -62,6 +62,7 @@ def test_build_order_payload():
     assert payload["shipTo"]["companyName"] == "Acme Co"
     assert payload["orderItems"] == [{"itemIdentifier": {"sku": "A-INV"}, "qty": 3}]
     assert "Client Store" in payload["notes"] and "Box by size" in payload["notes"]
+    assert "shippingNotes" not in payload   # Carrier Instructions stays empty in 3PL Manager
 
 
 def test_find_shortages():
