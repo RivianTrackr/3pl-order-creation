@@ -11,12 +11,6 @@
   {{ {'scheduled': 'Scheduled', 'manual': 'Run now', 'test': 'PO test', 'clients': 'Client matching'}.get(kind, kind) }}
 {%- endmacro %}
 
-{% macro level_icon(level) -%}
-  {% if level == 'error' %}<i class="fa-solid fa-circle-xmark level-error" title="Error"></i>
-  {% elif level == 'warning' %}<i class="fa-solid fa-triangle-exclamation level-warning" title="Warning"></i>
-  {% else %}<i class="fa-solid fa-circle-info level-info" title="Info"></i>{% endif %}
-{%- endmacro %}
-
 {% macro email_status(status) -%}
   {% if status == 'sent' %}<span class="badge badge-success">Sent</span>
   {% elif status == 'failed' %}<span class="badge badge-error">Failed</span>
@@ -31,11 +25,33 @@
   {{ parts | join(' · ') if parts else 'Nothing to do' }}
 {%- endmacro %}
 
+{# Timeline colour and icon per event: green = done, blue = progress, grey = skipped/waiting,
+   amber = needs a look, red = error. Warning/error levels always win over the event's usual tone. #}
+{% set EVENT_STYLE = {
+  'po.loaded': ('info', 'fa-download'),
+  'po.matched': ('info', 'fa-link'),
+  'sku.matched': ('info', 'fa-barcode'),
+  'stock.checked': ('info', 'fa-boxes-stacked'),
+  'order.preview': ('info', 'fa-eye'),
+  'order.recheck': ('info', 'fa-rotate'),
+  'alert.sent': ('info', 'fa-envelope'),
+  'order.created': ('success', 'fa-file-circle-plus'),
+  'order.completed': ('success', 'fa-circle-check'),
+  'po.done': ('success', 'fa-flag-checkered'),
+  'po.skipped': ('muted', 'fa-forward'),
+  'po.waiting': ('muted', 'fa-hourglass-half'),
+  'order.left_open': ('warning', 'fa-box-open'),
+  'order.found_existing': ('warning', 'fa-clone'),
+} %}
+
 {% macro event_list(events, show_po=False) -%}
 <ol class="timeline">
   {% for e in events %}
-  <li class="timeline-item level-{{ e.level }}">
-    <div class="timeline-icon">{{ level_icon(e.level) }}</div>
+  {% set style = EVENT_STYLE.get(e.event, ('info', 'fa-circle-info')) %}
+  {% set tone = e.level if e.level in ('error', 'warning') else style[0] %}
+  {% set icon = 'fa-circle-xmark' if e.level == 'error' else ('fa-triangle-exclamation' if e.level == 'warning' and style[0] != 'warning' else style[1]) %}
+  <li class="timeline-item tone-{{ tone }}">
+    <div class="timeline-icon" title="{{ tone|capitalize }}"><i class="fa-solid {{ icon }}"></i></div>
     <div class="timeline-body">
       <div class="timeline-head">
         <span class="timeline-message">{{ e.message }}</span>
