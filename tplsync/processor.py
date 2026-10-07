@@ -55,6 +55,17 @@ class SkipPO(Exception):
     """The PO doesn't belong in 3PL Central."""
 
 
+def _or_list(statuses) -> str:
+    names = {"wip": "WIP"}
+    labels = [names.get(s, s.title()) for s in statuses] or ["(none set)"]
+    return labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " or " + labels[-1]
+
+
+class HoldPO(Exception):
+    """The PO belongs in 3PL Central but its Syncore job isn't ready to send yet (e.g. still Pending).
+    Held POs are checked again every run and sent once the job moves on."""
+
+
 class ClientNotReady(RuntimeError):
     """The PO's client isn't fully set up. Retried every run without using up attempts."""
 
@@ -248,6 +259,14 @@ class Processor:
 
         try:
             self._process(po_id, job_id, last_modified)
+        except HoldPO as exc:
+            self.stats["held"] += 1
+            reason = str(exc.args[0])
+            newly_held = rec is None or rec["state"] != "held" or rec["skip_reason"] != reason
+            if not self.s.dry_run:
+                self.db.upsert(po_id, job_id, state="held", skip_reason=reason, last_modified=last_modified)
+            if newly_held or self.s.dry_run:   # one timeline entry per hold, not one every run
+                self.event(po_id, job_id, exc.args[1], "info", "po.held", f"On hold: {reason}", exc.args[2])
         except SkipPO as exc:
             self.stats["skipped"] += 1
             if not self.s.dry_run:
@@ -299,14 +318,17 @@ class Processor:
             if not mapping.is_vendor(po, self.s.vendor_name):
                 raise SkipPO(f"vendor is {supplier!r}, not {self.s.vendor_name!r}", ref)
             raise
-        self.event(po_id, job_id, ref, "info", "po.loaded",
-                   f"Loaded PO from Syncore: vendor {supplier!r}, {len(po.get('line_items') or [])} line(s), "
-                   f"{len(lines)} matching SKU(s)", {
-                       "supplier": po.get("supplier"), "ship_via": po.get("ship_via"), "ship_to": po.get("ship_to"),
-                       "critical_comments": po.get("critical_comments"), "matched_lines": lines,
-                       "line_items": [{k: li.get(k) for k in ("line_id", "parent_id", "type", "sku", "description",
-                                                              "quantity")} for li in po.get("line_items") or []],
-                   })
+        still_held = rec is not None and rec["state"] == "held" and not dry
+        if not still_held:
+            self.event(po_id, job_id, ref, "info", "po.loaded",
+                       f"Loaded PO from Syncore: vendor {supplier!r}, {len(po.get('line_items') or [])} line(s), "
+                       f"{len(lines)} matching SKU(s)", {
+                           "supplier": po.get("supplier"), "ship_via": po.get("ship_via"), "ship_to": po.get("ship_to"),
+                           "critical_comments": po.get("critical_comments"), "matched_lines": lines,
+                           "line_items": [{k: li.get(k) for k in ("line_id", "parent_id", "type", "sku",
+                                                                  "description", "quantity")}
+                                          for li in po.get("line_items") or []],
+                       })
 
         order_id = rec["order_id"] if rec else None
         if order_id is None:
@@ -316,6 +338,10 @@ class Processor:
             raise SkipPO(f"no SKUs match {self.s.sku_pattern!r}", ref, {"skus_on_po": mapping.po_skus(po)})
 
         job = self.syncore.get_job(job_id)
+        status = str(job.get("status") or "")
+        if order_id is None and status.casefold() not in self.s.job_statuses:
+            raise HoldPO(f"Syncore job {job_id} is {status or 'without a status'}; it's sent once the job is "
+                         f"{_or_list(self.s.job_statuses)}", ref, {"job_status": status})
         client = job.get("client") or {}
         client_id = str(client.get("id") or "")
         client_label = client.get("business_name") or client.get("name") or "unknown"

@@ -112,7 +112,7 @@
               <button class="btn btn-secondary btn-sm"><i class="fa-solid fa-rotate-right"></i> {{ {'dismissed': 'Restore', 'skipped': 'Process'}.get(r.state, 'Retry') }}</button>
             </form>
             {% endif %}
-            {% if r.state in ('failed', 'error', 'waiting') %}
+            {% if r.state in ('failed', 'error', 'waiting', 'held') %}
             <form method="post" action="/po/{{ r.po_id }}/dismiss" data-confirm="Dismiss {{ r.reference or ('PO ' ~ r.po_id) }}? It won't be sent to 3PL Central.">
               <input type="hidden" name="_csrf" value="{{ csrf }}">
               <button class="btn btn-danger-ghost btn-sm" title="Don't process this PO"><i class="fa-solid fa-ban"></i><span class="sr-only">Dismiss</span></button>

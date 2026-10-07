@@ -8,7 +8,7 @@ the database and is managed through the admin UI.
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from . import settings_schema
 from .crypto import SecretBox
@@ -102,6 +102,7 @@ class Settings:
     backup_keep_days: int = 14
     paused: bool = False
     display_timezone: str = "America/New_York"
+    job_statuses: Tuple[str, ...] = ("submitted", "wip", "delivered", "completed")
 
     clients: Dict[str, TplClient] = field(default_factory=dict)
     shipping_map: Dict[str, dict] = field(default_factory=dict)
@@ -193,6 +194,7 @@ def load_settings(db: Database, box: SecretBox, db_path: str, require_complete: 
         backup_keep_days=max(as_int("BACKUP_KEEP_DAYS", 14), 0),
         paused=(v["PAUSED"] or "false") == "true",
         display_timezone=v["DISPLAY_TIMEZONE"] or "America/New_York",
+        job_statuses=tuple(s.strip().casefold() for s in (v["SYNCORE_JOB_STATUSES"] or "").split(",") if s.strip()),
         clients=clients,
         shipping_map=shipping_map,
     )

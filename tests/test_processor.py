@@ -31,9 +31,10 @@ def make_po(po_id=900, supplier="Example Supplier LLC", sku="SHIRT-INV", qty=10,
 
 
 class FakeSyncore:
-    def __init__(self, pos, client_id=1213):
+    def __init__(self, pos, client_id=1213, job_status="Submitted"):
         self.pos = {p["id"]: p for p in pos}
         self.client_id = client_id
+        self.job_status = job_status
 
     def search_purchase_orders(self, created_from, modified_from):
         return [{"id": p["id"], "job_number": p["job_number"], "last_modified_date": p["last_modified_date"]}
@@ -43,7 +44,8 @@ class FakeSyncore:
         return self.pos.get(po_id)
 
     def get_job(self, job_id):
-        return {"id": job_id, "client": {"id": self.client_id, "business_name": "Client Inc", "name": "Pat Buyer"}}
+        return {"id": job_id, "status": self.job_status,
+                "client": {"id": self.client_id, "business_name": "Client Inc", "name": "Pat Buyer"}}
 
     def get_contact(self, contact_id):
         # Every contact at the company shares client group 5001; 4444 is in an unconfigured group.
@@ -335,3 +337,35 @@ def test_dismissed_po_is_not_picked_up_again(env):
     db.upsert(900, 12345, state="dismissed", last_modified="2026-09-17 12:05:00")
     proc.run(NOW)
     assert tpl.created == [] and db.get(900)["state"] == "dismissed"
+
+
+def test_po_waits_until_its_job_is_submitted(env):
+    proc, db, syncore, tpl, notifier = env([make_po()])
+    syncore.job_status = "Pending"
+    proc.run(NOW)
+    db.upsert(900, 12345, first_seen=(NOW - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%S"))
+    calls = []
+    real_get_job = syncore.get_job
+    syncore.get_job = lambda job_id: calls.append(job_id) or real_get_job(job_id)
+    proc.run(NOW)   # still Pending: checked again, but no new timeline entry and nothing sent
+    assert calls == [12345]
+    assert tpl.created == [] and notifier.sent == []
+    row = db.get(900)
+    assert row["state"] == "held" and "Pending" in row["skip_reason"]
+    events = [e["event"] for e in db.list_events(po_id=900)]
+    assert events.count("po.held") == 1 and events.count("po.loaded") == 1
+
+    # The job is submitted; the PO itself didn't change and has dropped out of the search window.
+    syncore.job_status = "Submitted"
+    syncore.search_purchase_orders = lambda created_from, modified_from: []
+    proc.run(NOW)
+    assert len(tpl.created) == 1 and db.get(900)["state"] == "done"
+
+
+def test_job_statuses_setting_controls_what_is_sent(env):
+    proc, db, syncore, tpl, _ = env([make_po()])
+    proc.s.job_statuses = ("submitted",)
+    syncore.job_status = "WIP"
+    proc.run(NOW)
+    assert tpl.created == [] and db.get(900)["state"] == "held"
+    assert "sent once the job is Submitted" in db.get(900)["skip_reason"]

@@ -12,16 +12,17 @@ For each PO created after go-live:
 
 1. **Waits** until the PO hasn't changed for the settle time (default 15 minutes), so a PO still being filled in isn't sent half-finished.
 2. **Filters.** The vendor must match the setting, and only lines whose SKU matches the SKU pattern (default `INV|OD`) are sent. POs with no matching lines are skipped. If a skipped PO is edited later, it's checked again.
-3. **Finds the client.** The PO's job names a Syncore contact; that contact's **client group** identifies the company, so store billing, employees and dropship contacts all map to one client on the **Clients** page. A PO from a client that isn't set up is **skipped** (no alert). The client still appears on the Clients page, and once it's finished a skipped PO can be sent with **Process** on the dashboard.
-4. **Creates the 3PL order.**
+3. **Waits for the job to be submitted.** The PO's Syncore job must be in one of the "Job statuses to send" (default Submitted, WIP, Delivered or Completed). A PO on a job that's still **Pending** is put **on hold** and checked again every run, then sent as soon as the job is submitted.
+4. **Finds the client.** The PO's job names a Syncore contact; that contact's **client group** identifies the company, so store billing, employees and dropship contacts all map to one client on the **Clients** page. A PO from a client that isn't set up is **skipped** (no alert). The client still appears on the Clients page, and once it's finished a skipped PO can be sent with **Process** on the dashboard.
+5. **Creates the 3PL order.**
    - The reference number is `<job number>-<PO number>`, e.g. `12345-3`. If the client already has an order with that reference number **or** PO number, it's reused instead of creating a second one.
    - Shipping comes from each PO: the ship-to address, the customer email and phone from Critical Comments, and the carrier and service from Ship Via. The Ship Via is matched against the warehouse's carrier list in 3PL Central ("USPS Priority Mail" becomes carrier `USPS` plus that service's code). If there's no confident match, the order is **not** created; it's reported as an error, alerted, and retried after an override is added. The PO's shipping instructions and critical comments go into the order's Warehouse Instructions; Carrier Instructions is left empty.
-5. **Checks the SKUs and inventory.**
+6. **Checks the SKUs and inventory.**
    - Each PO SKU is matched to the client's item in 3PL Central: exactly when the SKU is the same, otherwise by base SKU plus size, since Syncore writes the size into the SKU (`ABC123-2XL`) where 3PL Central uses a variant code with the size in the description (`ABC123-15570`, "... - XXL"). Sizes like 2XL/XXL and M/Medium are treated as the same.
    - A SKU with no clear match stops the order before it's created, with an alert naming the SKU and the sizes that do exist.
    - If every line has enough stock, the order is **Completed**.
    - If any line is short, the order is left **Open**, and an alert email lists the short SKUs. Every later run re-checks it and completes it once stock arrives (switch off with "Complete open orders when stock arrives").
-6. **Records the Transaction Number** (the 3PL Central order id) against the PO here: on the dashboard, in the PO's timeline and in any alert about it. Nothing is written back to Syncore.
+7. **Records the Transaction Number** (the 3PL Central order id) against the PO here: on the dashboard, in the PO's timeline and in any alert about it. Nothing is written back to Syncore.
 
 Once a day (after the hour set in Settings) a **summary email** goes out: orders created and completed, anything waiting for stock, anything needing attention, and clients still to be set up. The same run makes a **backup** of the database, kept for 14 days by default.
 

@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     client_id      TEXT,
     last_modified  TEXT,
     first_seen     TEXT NOT NULL,
-    state          TEXT NOT NULL,   -- waiting | skipped | processing | error | failed | done | dismissed
+    state          TEXT NOT NULL,   -- waiting | held | skipped | processing | error | failed | done | dismissed
     skip_reason    TEXT,
     order_id       INTEGER,         -- 3PL Central transaction number
     completion     TEXT,            -- completed | open_short
@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 """
 
-ACTIVE_STATES = ("waiting", "processing", "error")
+ACTIVE_STATES = ("waiting", "held", "processing", "error")   # re-checked every run
 
 
 CLIENT_REQUIREMENTS = (
@@ -246,6 +246,8 @@ class Database:
             where.append("state IN ('error', 'failed')")
         elif state == "done":
             where.append("state = 'done' AND completion = 'completed'")
+        elif state == "waiting":
+            where.append("state IN ('waiting', 'held', 'processing')")
         elif state:
             where.append("state = ?")
             params.append(state)
@@ -273,7 +275,7 @@ class Database:
               SUM(state = 'done' AND completion = 'completed') AS completed,
               SUM(completion = 'open_short') AS open_short,
               SUM(state IN ('error', 'failed')) AS problems,
-              SUM(state IN ('waiting', 'processing')) AS pending
+              SUM(state IN ('waiting', 'held', 'processing')) AS pending
             FROM purchase_orders""").fetchone()
         return {k: row[k] or 0 for k in row.keys()}
 

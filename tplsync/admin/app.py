@@ -34,7 +34,7 @@ from .auth import (FLASH_COOKIE, SESSION_COOKIE, SESSION_MAX_AGE, LoginThrottle,
 HERE = Path(__file__).resolve().parent
 PUBLIC_PATHS = ("/login", "/static/", "/healthz")
 STATE_LABELS = {
-    "waiting": "Waiting", "processing": "Processing", "error": "Retrying", "failed": "Failed",
+    "waiting": "Waiting", "held": "On hold", "processing": "Processing", "error": "Retrying", "failed": "Failed",
     "done": "Done", "skipped": "Skipped", "dismissed": "Dismissed",
 }
 

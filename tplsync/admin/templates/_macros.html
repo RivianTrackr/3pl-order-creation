@@ -18,7 +18,7 @@
 {%- endmacro %}
 
 {% macro summary(obj) -%}
-  {% set labels = [('found', 'PO found', 'POs found'), ('processed', 'processed', 'processed'), ('waiting', 'waiting', 'waiting'), ('skipped', 'skipped', 'skipped'), ('previewed', 'previewed', 'previewed'), ('created', 'order created', 'orders created'), ('completed', 'completed', 'completed'), ('left_open', 'left open', 'left open'), ('completed_late', 'completed after restock', 'completed after restock'), ('still_open', 'still short', 'still short'), ('errors', 'error', 'errors'), ('scanned', 'Syncore client read', 'Syncore clients read'), ('matched', 'matched', 'matched'), ('ambiguous', 'with several possible matches', 'with several possible matches'), ('unmatched', 'not found', 'not found')] %}
+  {% set labels = [('found', 'PO found', 'POs found'), ('processed', 'processed', 'processed'), ('waiting', 'waiting', 'waiting'), ('held', 'on hold', 'on hold'), ('skipped', 'skipped', 'skipped'), ('previewed', 'previewed', 'previewed'), ('created', 'order created', 'orders created'), ('completed', 'completed', 'completed'), ('left_open', 'left open', 'left open'), ('completed_late', 'completed after restock', 'completed after restock'), ('still_open', 'still short', 'still short'), ('errors', 'error', 'errors'), ('scanned', 'Syncore client read', 'Syncore clients read'), ('matched', 'matched', 'matched'), ('ambiguous', 'with several possible matches', 'with several possible matches'), ('unmatched', 'not found', 'not found')] %}
   {% set parts = [] %}
   {% if obj and obj.get('paused') %}{% set _ = parts.append('paused') %}{% endif %}
   {% for key, one, many in labels if obj and obj.get(key) %}{% set _ = parts.append(obj[key] ~ ' ' ~ (one if obj[key] == 1 else many)) %}{% endfor %}
@@ -40,6 +40,7 @@
   'po.done': ('success', 'fa-flag-checkered'),
   'po.skipped': ('muted', 'fa-forward'),
   'po.waiting': ('muted', 'fa-hourglass-half'),
+  'po.held': ('muted', 'fa-pause'),
   'order.left_open': ('warning', 'fa-box-open'),
   'order.found_existing': ('warning', 'fa-clone'),
 } %}

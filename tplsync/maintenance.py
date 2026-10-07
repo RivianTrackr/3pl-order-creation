@@ -36,6 +36,7 @@ def build_summary(db: Database, settings: Settings, now: datetime) -> List[str]:
     runs = db.runs_since(since)
     failed_runs = [r for r in runs if r["status"] in ("failed", "interrupted")]
     open_orders = db.open_short_orders()
+    held = db.recent(200, state="held")
     problems = db.recent(50, state="problems")
     waiting_clients = [r for r in db.list_clients() if client_status(r) != "ready" and r["last_po_at"]]
 
@@ -54,6 +55,9 @@ def build_summary(db: Database, settings: Settings, now: datetime) -> List[str]:
     if settings.dry_run:
         lines += ["", "NOTE: dry run is ON, so nothing is being sent to 3PL Central."]
 
+    if held:
+        lines += ["", f"On hold until their Syncore job is submitted ({len(held)}):"]
+        lines += [f"  {r['reference'] or r['po_id']}: {(r['skip_reason'] or '')[:120]}" for r in held[:25]]
     if open_orders:
         lines += ["", f"Waiting for stock ({len(open_orders)}):"]
         lines += [f"  {r['reference'] or r['po_id']} - 3PL order {r['order_id']}" for r in open_orders[:25]]
