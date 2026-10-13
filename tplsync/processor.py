@@ -234,7 +234,7 @@ class Processor:
                 self._send_alert(row["po_id"], row["job_id"], ref,
                                  f"[3PL] Order {ref} completed - stock arrived",
                                  [f"3PL Central order {order_id} ({ref}) was waiting for inventory and has now been "
-                                  f"completed automatically.", "", f"Client: {creds.name}"])
+                                  f"completed automatically.", "", f"Client: {creds.name}"], "stock_arrived")
             except Exception as exc:  # noqa: BLE001
                 self.stats["errors"] += 1
                 self.event(row["po_id"], row["job_id"], ref, "error", "order.recheck_failed",
@@ -459,7 +459,14 @@ class Processor:
 
     # --- alerts ---------------------------------------------------------------
 
-    def _send_alert(self, po_id: int, job_id: Optional[int], ref: Optional[str], subject: str, lines: list) -> bool:
+    def _send_alert(self, po_id: int, job_id: Optional[int], ref: Optional[str], subject: str, lines: list,
+                    kind: str) -> bool:
+        """Email an alert unless that kind is turned off in Settings > Emails. True once it's been dealt with
+        (sent, or deliberately not sent), so the same problem isn't alerted again."""
+        if not self.s.emails.get(kind, True):
+            self.event(po_id, job_id, ref, "info", "alert.muted", f"Not emailed (turned off in Settings > Emails): "
+                                                                   f"{subject}")
+            return True
         try:
             self.notifier.send(subject, lines, po_id=po_id)
         except Exception as exc:  # noqa: BLE001
@@ -482,7 +489,8 @@ class Processor:
             "Short items:",
         ]
         lines += [f"  {s['sku']}: ordered {s['ordered']:g}, available {s['available']:g}" for s in shortages]
-        self._send_alert(po_id, po["job_number"], ref, f"[3PL] Order {ref} left Open - insufficient inventory", lines)
+        self._send_alert(po_id, po["job_number"], ref, f"[3PL] Order {ref} left Open - insufficient inventory", lines,
+                         "short_stock")
 
     def _record_error(self, po_id: int, job_id: int, exc: Exception) -> None:
         if isinstance(exc, (ClientNotReady, ApiError, mapping.LineMappingError)) or type(exc) is RuntimeError:
@@ -529,5 +537,6 @@ class Processor:
             else ("It will go through automatically once the client is finished on the Clients page."
                   if isinstance(exc, ClientNotReady) else "It will be retried automatically on the next run."),
         ]
-        if self._send_alert(po_id, job_id, ref, f"[3PL] Problem with order {ref or f'PO id {po_id}'}", lines):
+        kind = "client_paused" if isinstance(exc, ClientNotReady) else ("failed" if state == "failed" else "errors")
+        if self._send_alert(po_id, job_id, ref, f"[3PL] Problem with order {ref or f'PO id {po_id}'}", lines, kind):
             self.db.upsert(po_id, job_id, alerted_error=signature)

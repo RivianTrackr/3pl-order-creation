@@ -72,6 +72,12 @@ class TplClient:
     active: bool = True
 
 
+# Alert email kinds -> on/off by default (Settings > Emails).
+EMAIL_DEFAULTS: Dict[str, bool] = {
+    "short_stock": True, "stock_arrived": True, "errors": True, "failed": True, "client_paused": False,
+}
+
+
 @dataclass
 class Settings:
     syncore_api_key: str
@@ -103,6 +109,7 @@ class Settings:
     paused: bool = False
     display_timezone: str = "America/New_York"
     job_statuses: Tuple[str, ...] = ("submitted", "wip", "delivered", "completed")
+    emails: Dict[str, bool] = field(default_factory=lambda: dict(EMAIL_DEFAULTS))
 
     clients: Dict[str, TplClient] = field(default_factory=dict)
     shipping_map: Dict[str, dict] = field(default_factory=dict)
@@ -194,6 +201,8 @@ def load_settings(db: Database, box: SecretBox, db_path: str, require_complete: 
         backup_keep_days=max(as_int("BACKUP_KEEP_DAYS", 14), 0),
         paused=(v["PAUSED"] or "false") == "true",
         display_timezone=v["DISPLAY_TIMEZONE"] or "America/New_York",
+        emails={kind: (v[f"EMAIL_{kind.upper()}"] or str(on).lower()) == "true"
+                for kind, on in EMAIL_DEFAULTS.items()},
         job_statuses=tuple(s.strip().casefold() for s in (v["SYNCORE_JOB_STATUSES"] or "").split(",") if s.strip()),
         clients=clients,
         shipping_map=shipping_map,

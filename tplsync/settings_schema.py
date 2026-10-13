@@ -19,6 +19,7 @@ SECTIONS: Tuple[Tuple[str, str, str], ...] = (
     ("syncore", "Syncore", "fa-solid fa-cloud"),
     ("tpl", "3PL Central", "fa-solid fa-warehouse"),
     ("alerts", "Alerts", "fa-solid fa-envelope"),
+    ("emails", "Emails", "fa-solid fa-bell"),
     ("behaviour", "Behaviour", "fa-solid fa-sliders"),
 )
 
@@ -69,11 +70,24 @@ SETTINGS: Tuple[SettingDef, ...] = (
                help="Wait until a PO has been unchanged this long before sending it."),
     SettingDef("LOOKBACK_HOURS", "Lookback (hours)", "behaviour", "int", default="72",
                help="How far back each run searches for modified POs."),
-    SettingDef("DAILY_SUMMARY", "Daily summary email", "alerts", "bool", default="true",
+    # Which alert emails go out. A muted alert is still recorded in the PO's timeline.
+    SettingDef("EMAIL_SHORT_STOCK", "Order left Open for short stock", "emails", "bool", default="true",
+               help="An order was created but not completed because the warehouse doesn't have enough inventory."),
+    SettingDef("EMAIL_STOCK_ARRIVED", "Open order completed after stock arrived", "emails", "bool", default="true",
+               help="An order left Open was completed automatically once the inventory came in."),
+    SettingDef("EMAIL_ERRORS", "Problems that will be retried", "emails", "bool", default="true",
+               help="A PO couldn't be sent yet, e.g. an unmatched SKU or Ship Via, or 3PL Central or Syncore "
+                    "returned an error. Sent once per distinct problem."),
+    SettingDef("EMAIL_FAILED", "POs that stopped retrying", "emails", "bool", default="true",
+               help="A PO failed 20 times and needs Retry on the dashboard once the cause is fixed."),
+    SettingDef("EMAIL_CLIENT_PAUSED", "PO for a paused client", "emails", "bool", default="false",
+               help="A PO arrived for a client that's paused on the Clients page. It's sent automatically once "
+                    "the client is activated."),
+    SettingDef("DAILY_SUMMARY", "Daily summary email", "emails", "bool", default="true",
                help="One email a day listing what was created, what's waiting for stock and what needs attention."),
-    SettingDef("SUMMARY_HOUR", "Send summary at (hour)", "alerts", "int", default="8",
+    SettingDef("SUMMARY_HOUR", "Send summary at (hour)", "emails", "int", default="8",
                help="0-23 in the display time zone. The summary goes out on the first run after this hour."),
-    SettingDef("SUMMARY_EMAIL_TO", "Summary recipients", "alerts",
+    SettingDef("SUMMARY_EMAIL_TO", "Summary recipients", "emails",
                help="Comma-separated. Leave blank to use the alert recipients."),
     SettingDef("BACKUP_KEEP_DAYS", "Keep database backups (days)", "behaviour", "int", default="14",
                help="A copy of the database is made once a day. 0 turns backups off."),

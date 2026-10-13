@@ -28,6 +28,8 @@ Once a day (after the hour set in Settings) a **summary email** goes out: orders
 
 Any error sends one alert email per distinct problem and is retried on the next run. After 20 failed attempts it stops retrying; use **Retry** on the dashboard once the cause is fixed. Each step is recorded, so a retry resumes where it stopped.
 
+Each kind of alert email (short stock, stock arrived, problems being retried, POs that stopped retrying, POs for a paused client) can be switched on or off under **Settings → Emails**. Paused-client emails are off by default. A switched-off alert still appears in the PO's timeline.
+
 ## Admin UI
 
 | Page | What's there |

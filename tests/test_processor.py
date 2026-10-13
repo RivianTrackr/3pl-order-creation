@@ -369,3 +369,21 @@ def test_job_statuses_setting_controls_what_is_sent(env):
     proc.run(NOW)
     assert tpl.created == [] and db.get(900)["state"] == "held"
     assert "sent once the job is Submitted" in db.get(900)["skip_reason"]
+
+
+def test_alert_emails_can_be_turned_off(env):
+    from tplsync.processor import ClientNotReady
+    proc, db, syncore, tpl, notifier = env([make_po(qty=10)], available=3)
+    proc.s.emails["short_stock"] = False
+    proc.run(NOW)
+    assert db.get(900)["completion"] == "open_short" and notifier.sent == []
+    assert any(e["event"] == "alert.muted" for e in db.list_events(po_id=900))
+
+    # A paused client is not emailed by default, and isn't emailed later if the setting is turned back on.
+    proc._record_error(901, 12345, ClientNotReady("Client Inc is paused on the Clients page."))
+    assert notifier.sent == []
+    proc.s.emails["client_paused"] = True
+    proc._record_error(901, 12345, ClientNotReady("Client Inc is paused on the Clients page."))
+    assert notifier.sent == []
+    proc._record_error(901, 12345, RuntimeError("3PL Central is down"))
+    assert len(notifier.sent) == 1

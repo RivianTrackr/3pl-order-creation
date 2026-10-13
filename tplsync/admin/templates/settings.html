@@ -25,6 +25,8 @@
       <button class="btn btn-secondary btn-sm" form="test-syncore"><i class="fa-solid fa-plug"></i> Test connection</button>
       {% elif section_key == 'alerts' %}
       <button class="btn btn-secondary btn-sm" form="test-email"><i class="fa-solid fa-paper-plane"></i> Send test email</button>
+      {% elif section_key == 'emails' %}
+      <span class="muted small">Turned-off alerts still show in each PO's timeline.</span>
       <button class="btn btn-secondary btn-sm" form="send-summary"><i class="fa-solid fa-envelope-open-text"></i> Send summary now</button>
       {% elif section_key == 'tpl' %}
       <span class="muted small">Each client's credentials are on the <a href="/clients">Clients</a> page.</span>

@@ -84,6 +84,18 @@ def test_settings_secret_is_encrypted_and_kept_when_blank(client, boot):
     assert settings.vendor_name == "Example Supplier LLC"
 
 
+def test_email_toggles_on_the_settings_page(client, boot):
+    login(client)
+    db = Database(boot.db_path)
+    defaults = load_settings(db, boot.secret_box(), boot.db_path, require_complete=False).emails
+    assert defaults["short_stock"] and defaults["errors"] and not defaults["client_paused"]
+    page = client.get("/settings").text
+    assert "PO for a paused client" in page and "Order left Open for short stock" in page
+    client.post("/settings", data={"_csrf": csrf(client), "EMAIL_SHORT_STOCK": "on", "EMAIL_CLIENT_PAUSED": "on"})
+    emails = load_settings(db, boot.secret_box(), boot.db_path, require_complete=False).emails
+    assert emails["short_stock"] and emails["client_paused"] and not emails["errors"]
+
+
 def test_settings_validation(client, boot):
     login(client)
     resp = client.post("/settings", data={"_csrf": csrf(client), "SKU_PATTERN": "INV(", "PO_SETTLE_MINUTES": "abc"})
