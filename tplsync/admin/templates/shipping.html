@@ -71,11 +71,9 @@
       </div>
       <div class="field">
         <label for="billing_code">Billing</label>
-        <select class="input" id="billing_code" name="billing_code">
-          <option value="">Default ({{ default_billing }})</option>
-          {% for code in ['Prepaid', 'FreightCollect', 'BillThirdParty'] %}
-          <option value="{{ code }}" {{ 'selected' if editing and editing.billing_code == code }}>{{ code }}</option>
-          {% endfor %}
+        <select class="input" id="billing_code" name="billing_code" data-selected="{{ editing.billing_code or '' if editing else '' }}"
+                data-default="{{ default_billing or 'Prepaid' }}">
+          <option value="">Default ({{ default_billing or 'Prepaid' }})</option>
         </select>
       </div>
       <div class="field">

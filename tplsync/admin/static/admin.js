@@ -23,14 +23,16 @@ document.addEventListener("submit", function (event) {
   }
 });
 
-// Ship Via override form: list the chosen carrier's services.
+// Ship Via override form: list the chosen carrier's services and billing codes.
 (function () {
   var form = document.getElementById("override-form");
   if (!form) return;
   var carriers = JSON.parse(form.dataset.carriers || "[]");
   var carrierSelect = form.querySelector("#carrier");
   var serviceSelect = form.querySelector("#mode");
+  var billingSelect = form.querySelector("#billing_code");
   var initial = serviceSelect.dataset.selected;
+  var initialBilling = billingSelect.dataset.selected;
 
   function fill() {
     var carrier = carriers.find(function (c) { return c.name === carrierSelect.value; });
@@ -47,6 +49,20 @@ document.addEventListener("submit", function (event) {
       serviceSelect.appendChild(option);
     });
     initial = null;
+
+    billingSelect.textContent = "";
+    var standard = document.createElement("option");
+    standard.value = "";
+    standard.textContent = "Default (" + billingSelect.dataset.default + ")";
+    billingSelect.appendChild(standard);
+    (carrier ? carrier.billing_codes : []).forEach(function (code) {
+      var option = document.createElement("option");
+      option.value = code;
+      option.textContent = code;
+      if (code === initialBilling) option.selected = true;
+      billingSelect.appendChild(option);
+    });
+    initialBilling = null;
   }
 
   carrierSelect.addEventListener("change", fill);

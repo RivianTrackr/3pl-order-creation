@@ -187,10 +187,28 @@ def find_service(service_text: str, carrier: Carrier, ship_via: str) -> Service:
                             f"another name.")
 
 
-def _check_billing(billing_code: str, carrier: Carrier) -> None:
-    if carrier.billing_codes and billing_code not in carrier.billing_codes:
-        raise CarrierMatchError(f"Billing code {billing_code!r} isn't allowed for {carrier.name} in 3PL Central "
-                                f"(allowed: {', '.join(carrier.billing_codes)}).")
+# Carriers name the same billing terms differently: one warehouse's UPS uses "BillThirdParty" where its FedEx
+# uses "third party". Codes in the same group mean the same thing.
+BILLING_SYNONYMS = (
+    {"billthirdparty", "thirdparty", "3rdparty", "billthird"},
+    {"freightcollect", "collect"},
+    {"prepaid", "sender", "shipper", "billsender", "billshipper"},
+    {"recipient", "billrecipient", "receiver", "consignee"},
+)
+
+
+def resolve_billing(billing_code: str, carrier: Carrier) -> str:
+    """The carrier's own billing code for billing_code ("BillThirdParty" -> FedEx's "third party")."""
+    if not carrier.billing_codes or billing_code in carrier.billing_codes:
+        return billing_code
+    wanted = _alnum(billing_code)
+    group = next((g for g in BILLING_SYNONYMS if wanted in g), {wanted})
+    matches = [c for c in carrier.billing_codes if _alnum(c) in group]
+    if len(matches) == 1:
+        return matches[0]
+    raise CarrierMatchError(f"Billing code {billing_code!r} isn't allowed for {carrier.name} in 3PL Central "
+                            f"(allowed: {', '.join(carrier.billing_codes)}). Choose one of those for this carrier's "
+                            f"Ship Via overrides, or change the default billing code in Settings.")
 
 
 ACCOUNT_TOKEN = re.compile(r"[A-Za-z0-9]{4,20}")
@@ -236,8 +254,7 @@ def _from_override(text: str, o: dict, carriers_by_name: Dict[str, Carrier], bil
     if service is None:
         raise CarrierMatchError(f"The Ship Via override for {text!r} uses service code {o.get('mode')!r}, "
                                 f"which {carrier.name} doesn't have in 3PL Central.")
-    billing = o.get("billingCode") or billing_code
-    _check_billing(billing, carrier)
+    billing = resolve_billing(o.get("billingCode") or billing_code, carrier)
     account = account or o.get("account")
     return Routing(carrier.name, service.code, service.description, o.get("scacCode") or carrier.scac,
                    account, billing, "override",
@@ -277,8 +294,8 @@ def resolve_routing(ship_via: Optional[str], overrides: Dict[str, dict], carrier
                 raise CarrierMatchError(
                     f"Ship Via {text!r} doesn't match a 3PL Central service, with or without {account!r} as the "
                     f"account number. Add a Ship Via override for {base!r}.") from None
-        _check_billing(billing_code, carrier)
-        return Routing(carrier.name, service.code, service.description, carrier.scac, account, billing_code, "po",
+        return Routing(carrier.name, service.code, service.description, carrier.scac, account,
+                       resolve_billing(billing_code, carrier), "po",
                        f"Ship Via {text!r} -> {carrier.name} / {service.description} ({service.code})"
                        + (f", account {account}" if account else ""))
 
@@ -288,6 +305,6 @@ def resolve_routing(ship_via: Optional[str], overrides: Dict[str, dict], carrier
     if carrier is None:
         raise CarrierMatchError(f"The default carrier {default_carrier!r} in Settings isn't set up in 3PL Central.")
     service = find_service(default_mode or "", carrier, f"{default_carrier} {default_mode or ''}".strip())
-    _check_billing(billing_code, carrier)
-    return Routing(carrier.name, service.code, service.description, carrier.scac, None, billing_code, "default",
+    return Routing(carrier.name, service.code, service.description, carrier.scac, None,
+                   resolve_billing(billing_code, carrier), "default",
                    f"PO has no Ship Via -> default {carrier.name} / {service.description} ({service.code})")

@@ -183,3 +183,30 @@ def test_unmatched_shorthand_with_account_says_what_to_add():
     import pytest
     with pytest.raises(CarrierMatchError, match="Add a Ship Via override for 'UPS GRND'"):
         route("UPS GRND C713X7")
+
+
+def test_billing_code_is_translated_to_the_carriers_own_wording():
+    from tplsync.carriers import resolve_billing
+    fedex = parse_carrier_list({"_embedded": {"http://api.3plCentral.com/rels/properties/carrier": [
+        {"name": "FedEx", "billingCodes": [{"code": "collect"}, {"code": "recipient"}, {"code": "sender"},
+                                           {"code": "third party"}],
+         "shipmentServices": [{"code": "FEDEX_GROUND", "description": "FedEx Ground"}]}]}})
+    carrier = fedex[0]
+    assert resolve_billing("BillThirdParty", carrier) == "third party"
+    assert resolve_billing("FreightCollect", carrier) == "collect"
+    assert resolve_billing("Prepaid", carrier) == "sender"
+    assert resolve_billing("recipient", carrier) == "recipient"
+
+    # The FEDEX GRD override with no billing of its own uses the Settings default, translated for FedEx.
+    overrides = {"fedex grd": {"carrier": "FedEx", "mode": "FEDEX_GROUND", "scacCode": None, "account": None,
+                               "billingCode": None}}
+    r = resolve_routing("FEDEX GRD 239981445", overrides, fedex, "BillThirdParty", None, None)
+    assert (r.billing_code, r.account) == ("third party", "239981445")
+
+
+def test_unknown_billing_code_still_errors():
+    from tplsync.carriers import resolve_billing
+    carrier = parse_carrier_list({"_embedded": {"http://api.3plCentral.com/rels/properties/carrier": [
+        {"name": "FedEx", "billingCodes": [{"code": "sender"}], "shipmentServices": []}]}})[0]
+    with pytest.raises(CarrierMatchError, match="allowed: sender"):
+        resolve_billing("BillThirdParty", carrier)

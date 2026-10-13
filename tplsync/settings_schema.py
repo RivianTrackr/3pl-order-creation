@@ -47,7 +47,9 @@ SETTINGS: Tuple[SettingDef, ...] = (
     SettingDef("TPL_FACILITY_ID", "Warehouse ID", "tpl", "int",
                help="Optional. When set, used instead of the warehouse name."),
     SettingDef("TPL_BILLING_CODE", "Default billing code", "tpl", default="Prepaid",
-               help="Prepaid, FreightCollect or BillThirdParty. Syncore POs don't carry a billing type."),
+               help="Prepaid, FreightCollect or BillThirdParty. Syncore POs don't carry a billing type. Carriers "
+                    "that name these differently get their own equivalent, e.g. BillThirdParty is sent to a FedEx "
+                    "that uses \"third party\" as \"third party\"."),
     SettingDef("TPL_DEFAULT_CARRIER", "Carrier when Ship Via is blank", "tpl",
                help="Only used for POs with no Ship Via, e.g. USPS. Must be a carrier set up in 3PL Central."),
     SettingDef("TPL_DEFAULT_MODE", "Service when Ship Via is blank", "tpl",
