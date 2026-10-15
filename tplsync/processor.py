@@ -18,6 +18,7 @@ timeline per PO and per run.
 
 import json
 import logging
+import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, Optional
@@ -240,6 +241,10 @@ class Processor:
                 self.event(row["po_id"], row["job_id"], ref, "error", "order.recheck_failed",
                            f"Could not re-check 3PL order {order_id}: {exc}")
 
+    def _all_allowed(self) -> frozenset:
+        """Every client's allowed SKUs, for the first pass before the PO's client is known."""
+        return frozenset(sku for skus_ in self.db.allowed_skus_by_client().values() for sku in skus_)
+
     def client_items(self, tpl: TplCentralClient) -> list:
         """The client's items in 3PL Central, fetched once per run."""
         if tpl.creds.customer_id not in self._items:
@@ -313,7 +318,7 @@ class Processor:
         ref = mapping.reference_number(po)
         supplier = (po.get("supplier") or {}).get("name")
         try:
-            lines = mapping.order_lines(po, self.s.sku_pattern)
+            lines = mapping.order_lines(po, self.s.sku_pattern, self._all_allowed())
         except mapping.LineMappingError:
             if not mapping.is_vendor(po, self.s.vendor_name):
                 raise SkipPO(f"vendor is {supplier!r}, not {self.s.vendor_name!r}", ref)
@@ -335,7 +340,8 @@ class Processor:
             if not mapping.is_vendor(po, self.s.vendor_name):
                 raise SkipPO(f"vendor is {supplier!r}, not {self.s.vendor_name!r}", ref)
         if not lines and order_id is None:
-            raise SkipPO(f"no SKUs match {self.s.sku_pattern!r}", ref, {"skus_on_po": mapping.po_skus(po)})
+            raise SkipPO(f"no SKUs match {self.s.sku_pattern!r} or the Allowed SKUs list", ref,
+                         {"skus_on_po": mapping.po_skus(po)})
 
         job = self.syncore.get_job(job_id)
         status = str(job.get("status") or "")
@@ -362,6 +368,16 @@ class Processor:
             raise SkipPO(f"Syncore client {client_id} ({client_label}) isn't in a client group, so it can't be "
                          f"matched to a 3PL Central client", ref, {"syncore_client": client_id})
         row = self.db.link_syncore_group(group_id, group_name)
+        if order_id is None:
+            # An allowed SKU only counts for the client it was allowed for.
+            mine = self.db.allowed_skus_by_client().get(row["id"], set())
+            pattern = re.compile(self.s.sku_pattern)
+            others = [sku for sku in lines if not pattern.search(sku) and sku.casefold() not in mine]
+            for sku in others:
+                del lines[sku]
+            if not lines:
+                raise SkipPO(f"no SKUs match {self.s.sku_pattern!r} or {row['name']}'s Allowed SKUs", ref,
+                             {"skus_on_po": mapping.po_skus(po), "allowed_for_other_clients": others})
         creds = self.s.clients.get(group_id)
         if creds is None:
             # Not set up for 3PL Central: skip the PO. The client is listed on the Clients page (added above if

@@ -151,6 +151,7 @@ a.stat:hover { border-color: var(--border-strong); text-decoration: none; }
 .checklist li.is-done { color: var(--text-muted); }
 .checklist li.is-done i { color: var(--success); }
 .inline-form { display: inline; margin-left: 4px; }
+.input-sm { width: auto; min-width: 180px; padding: 6px 10px; font-size: 13px; }
 
 /* ---------- Tables ---------- */
 
@@ -168,6 +169,7 @@ a.stat:hover { border-color: var(--border-strong); text-decoration: none; }
 .cell-meta { font-size: 12px; color: var(--text-muted); font-family: var(--font); }
 .cell-detail { color: var(--text-secondary); min-width: 260px; max-width: 420px; overflow-wrap: anywhere; font-size: 13px; }
 .nowrap { white-space: nowrap; }
+.sku-description { color: var(--text-secondary); font-size: 13px; min-width: 160px; }
 .truncate { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-actions { text-align: right; white-space: nowrap; }
 .row-actions form { display: inline; }

@@ -335,3 +335,49 @@ def test_override_keeps_a_service_name_that_ends_in_a_digit(client, boot):
     assert [r["ship_via"] for r in db.list_shipping_rules()] == ["UPS 3DAY"]
     page = client.get("/shipping?check=UPS+3DAY+C713X7").text
     assert "UPS 3 Day Select" in page and "account <code>C713X7</code>" in page
+
+
+def test_allowed_skus_import_add_and_remove(client, boot, tmp_path):
+    import io
+    from openpyxl import Workbook
+    login(client)
+    db = Database(boot.db_path)
+    centurion = db.save_client(None, name="Centurion", source="manual")
+    db.save_client(None, name="The Baldwin Group", source="manual")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["3PL Client Name", "Product SKU #", "Product Description"])
+    ws.append(["Centurion", "CENT037", "14 Grande Wall Clock - Black"])
+    ws.append(["Centurion", "CENT037", "14 Grande Wall Clock - Black"])   # duplicate row
+    ws.append(["The Baldwin Group/TBG", "boxnewhirekit1", "Box for New Hire Kit"])
+    ws.append(["Harbor Global", "HARBOX", "Kits ship in a box"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    token = csrf(client, "/skus")
+    resp = client.post("/skus/import", data={"_csrf": token},
+                       files={"file": ("inventory_skus.xlsx", buf.getvalue(),
+                                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert "2 SKU(s) added, 1 already listed" in resp.text and "Harbor Global (1)" in resp.text
+    assert sorted(r["sku"] for r in db.list_allowed_skus()) == ["CENT037", "boxnewhirekit1"]
+    assert db.allowed_skus_by_client()[centurion] == {"cent037"}
+
+    client.post("/skus/add", data={"_csrf": token, "client_pk": centurion, "sku": "CENT058", "description": "Yeti"})
+    page = client.get(f"/skus?client={centurion}").text
+    assert "CENT058" in page and "boxnewhirekit1" not in page
+
+    sku_id = next(r["id"] for r in db.list_allowed_skus() if r["sku"] == "CENT058")
+    client.post(f"/skus/{sku_id}/delete", data={"_csrf": token})
+    assert "CENT058" not in [r["sku"] for r in db.list_allowed_skus()]
+
+
+def test_allowed_skus_csv_and_bad_files(client, boot):
+    login(client)
+    db = Database(boot.db_path)
+    db.save_client(None, name="Spot Hero", source="manual")
+    token = csrf(client, "/skus")
+    csv_body = "Client,SKU\nSpot Hero,SPHKIT005\n".encode()
+    resp = client.post("/skus/import", data={"_csrf": token}, files={"file": ("list.csv", csv_body, "text/csv")})
+    assert "1 SKU(s) added" in resp.text
+    resp = client.post("/skus/import", data={"_csrf": token}, files={"file": ("list.pdf", b"%PDF", "application/pdf")})
+    assert "Upload an .xlsx or .csv file" in resp.text

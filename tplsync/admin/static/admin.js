@@ -68,3 +68,8 @@ document.addEventListener("submit", function (event) {
   carrierSelect.addEventListener("change", fill);
   fill();
 })();
+
+// Selects that filter a page as soon as they change.
+document.querySelectorAll("select[data-autosubmit]").forEach(function (select) {
+  select.addEventListener("change", function () { select.form.submit(); });
+});

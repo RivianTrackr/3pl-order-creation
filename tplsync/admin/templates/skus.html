@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Allowed SKUs{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1 class="page-title">Allowed SKUs</h1>
+    <p class="page-subtitle">PO lines are sent when their SKU matches <code>{{ sku_pattern }}</code>. SKUs listed here are sent too, but only for their own client and only on POs from {{ vendor_name }}. Use the SKU exactly as it is in 3PL Central.</p>
+  </div>
+</header>
+
+<div class="two-col">
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title"><i class="fa-solid fa-barcode"></i> {{ rows|length }} allowed SKU{{ '' if rows|length == 1 else 's' }}</h2>
+      <form method="get" action="/skus" class="inline-form">
+        <label class="sr-only" for="client-filter">Client</label>
+        <select class="input input-sm" id="client-filter" name="client" data-autosubmit>
+          <option value="">All clients</option>
+          {% for c in clients if counts.get(c.id) %}
+          <option value="{{ c.id }}" {{ 'selected' if selected == c.id }}>{{ c.name }} ({{ counts[c.id] }})</option>
+          {% endfor %}
+        </select>
+        <noscript><button class="btn btn-secondary btn-sm">Filter</button></noscript>
+      </form>
+    </div>
+    {% if rows %}
+    <div class="table-wrap">
+      <table class="table table-compact">
+        <thead><tr><th>Client</th><th>SKU</th><th>Description</th><th></th></tr></thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ r.client_name }}</td>
+            <td class="mono nowrap">{{ r.sku }}</td>
+            <td class="sku-description">{{ r.description or '' }}</td>
+            <td class="row-actions">
+              <form method="post" action="/skus/{{ r.id }}/delete" data-confirm="Stop allowing {{ r.sku }} for {{ r.client_name }}?">
+                <input type="hidden" name="_csrf" value="{{ csrf }}">
+                {% if selected %}<input type="hidden" name="client" value="{{ selected }}">{% endif %}
+                <button class="btn btn-danger-ghost btn-sm" title="Remove"><i class="fa-solid fa-trash"></i><span class="sr-only">Remove {{ r.sku }}</span></button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <i class="fa-solid fa-barcode"></i>
+      <h3>No allowed SKUs yet</h3>
+      <p>Import a spreadsheet or add SKUs one at a time.</p>
+    </div>
+    {% endif %}
+  </section>
+
+  <div class="stack">
+    <section class="card">
+      <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-file-import"></i> Import a spreadsheet</h2></div>
+      <form method="post" action="/skus/import" enctype="multipart/form-data" class="card-body stack">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <div class="field">
+          <label for="file">.xlsx or .csv file</label>
+          <input class="input" type="file" id="file" name="file" accept=".xlsx,.csv" required>
+          <p class="field-description">Columns for the client name, the SKU and (optionally) a description, found by their headers, e.g. "3PL Client Name", "Product SKU #", "Product Description". Client names are matched to the Clients page; SKUs already listed are skipped.</p>
+        </div>
+        <div><button class="btn btn-primary"><i class="fa-solid fa-upload"></i> Import</button></div>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-plus"></i> Add a SKU</h2></div>
+      <form method="post" action="/skus/add" class="card-body stack">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <div class="field">
+          <label for="client_pk">Client</label>
+          <select class="input" id="client_pk" name="client_pk" required>
+            <option value="">Choose…</option>
+            {% for c in clients %}<option value="{{ c.id }}" {{ 'selected' if selected == c.id }}>{{ c.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field"><label for="sku">SKU</label><input class="input mono" id="sku" name="sku" maxlength="100" required></div>
+        <div class="field"><label for="description">Description <span class="muted">(optional)</span></label><input class="input" id="description" name="description" maxlength="200"></div>
+        <div><button class="btn btn-secondary"><i class="fa-solid fa-plus"></i> Add</button></div>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

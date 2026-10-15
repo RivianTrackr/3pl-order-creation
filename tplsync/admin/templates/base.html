@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Admin{% endblock %} · 3PL Order Sync</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/admin.css?v=9">
+  <link rel="stylesheet" href="/static/admin.css?v=10">
   <link rel="icon" href="data:,">
   {% block head %}{% endblock %}
 </head>
@@ -20,6 +20,7 @@
       <nav class="sidebar-nav" aria-label="Main">
         <a href="/" class="{{ 'active' if nav == 'dashboard' }}"><i class="fa-solid fa-gauge"></i><span>Dashboard</span></a>
         <a href="/clients" class="{{ 'active' if nav == 'clients' }}"><i class="fa-solid fa-building"></i><span>Clients</span></a>
+        <a href="/skus" class="{{ 'active' if nav == 'skus' }}"><i class="fa-solid fa-barcode"></i><span>Allowed SKUs</span></a>
         <a href="/shipping" class="{{ 'active' if nav == 'shipping' }}"><i class="fa-solid fa-truck-fast"></i><span>Ship Via</span></a>
         <a href="/logs" class="{{ 'active' if nav == 'logs' }}"><i class="fa-solid fa-list-ul"></i><span>Logs</span></a>
         <a href="/settings" class="{{ 'active' if nav == 'settings' }}"><i class="fa-solid fa-gear"></i><span>Settings</span></a>
@@ -44,6 +45,6 @@
       {% block content %}{% endblock %}
     </main>
   </div>
-  <script src="/static/admin.js?v=2"></script>
+  <script src="/static/admin.js?v=3"></script>
 </body>
 </html>

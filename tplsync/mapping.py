@@ -38,7 +38,7 @@ def tagged_sku(line: dict) -> Optional[str]:
     return match.group(1).strip() if match else None
 
 
-def order_lines(po: dict, sku_pattern: str) -> "OrderedDict[str, float]":
+def order_lines(po: dict, sku_pattern: str, allowed=frozenset()) -> "OrderedDict[str, float]":
     """SKU -> quantity for the PO lines that belong in 3PL Central.
 
     Two layouts are supported:
@@ -51,9 +51,14 @@ def order_lines(po: dict, sku_pattern: str) -> "OrderedDict[str, float]":
       matching children carry their own quantities (e.g. sizes) is skipped so it
       isn't counted twice.
 
+    A SKU belongs if it matches sku_pattern or is in allowed (casefolded SKUs from the Allowed SKUs page).
     Repeated SKUs are summed.
     """
-    rx = re.compile(sku_pattern)
+    pattern = re.compile(sku_pattern)
+
+    def wanted(sku: str) -> bool:
+        return bool(pattern.search(sku)) or sku.strip().casefold() in allowed
+
     items = po.get("line_items") or []
     lines: "OrderedDict[str, float]" = OrderedDict()
 
@@ -80,7 +85,7 @@ def order_lines(po: dict, sku_pattern: str) -> "OrderedDict[str, float]":
     claimed = set()   # group/product line ids whose quantity was used by a SKU line
     for index, li in enumerate(items):
         sku = tagged_sku(li)
-        if not sku or not rx.search(sku):
+        if not sku or not wanted(sku):
             continue
         qty = _qty(li.get("quantity"))
         if qty <= 0:
@@ -110,7 +115,7 @@ def order_lines(po: dict, sku_pattern: str) -> "OrderedDict[str, float]":
 
     # Layout 2: SKU field on the line itself.
     matching = [li for li in items
-                if li.get("sku") and rx.search(str(li["sku"])) and _qty(li.get("quantity")) > 0
+                if li.get("sku") and wanted(str(li["sku"])) and _qty(li.get("quantity")) > 0
                 and li.get("line_id") not in claimed]
     parents_with_children = {li.get("parent_id") for li in matching if li.get("parent_id")}
     for li in matching:

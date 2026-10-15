@@ -163,3 +163,16 @@ def test_product_line_with_its_own_sizes_needs_one_variant_per_sku():
         mapping.order_lines(po(line_items=items), "INV|OD")
     items[4]["quantity"] = 0          # a single size: fine
     assert dict(mapping.order_lines(po(line_items=items), "INV|OD")) == {"WDT511OD-3": 1}
+
+
+def test_allowed_skus_are_included_without_inv_or_od():
+    from tplsync.mapping import order_lines
+    po = {"line_items": [
+        {"line_id": 1, "parent_id": 0, "sku": "CENT037", "quantity": 2},
+        {"line_id": 2, "parent_id": 0, "sku": "boxnewhirekit1", "quantity": 1},
+        {"line_id": 3, "parent_id": 0, "sku": "PLAIN-123", "quantity": 5},
+        {"line_id": 4, "parent_id": 0, "sku": "SHIRT-INV", "quantity": 3},
+    ]}
+    assert dict(order_lines(po, "INV|OD")) == {"SHIRT-INV": 3}
+    lines = order_lines(po, "INV|OD", frozenset({"cent037", "boxnewhirekit1"}))
+    assert dict(lines) == {"CENT037": 2, "boxnewhirekit1": 1, "SHIRT-INV": 3}

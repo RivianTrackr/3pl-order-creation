@@ -12,7 +12,7 @@ from typing import Optional
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -25,6 +25,7 @@ from ..config import (ROOT, Bootstrap, ConfigError, TplClient, any_ready_client,
                       missing_required, setting_values, shipping_overrides, status_list)
 from ..db import Database, client_missing, client_status, company_key, utcnow
 from ..http import ApiError
+from ..skulist import SheetError, read_sheet
 from ..notify import Notifier
 from ..syncore import SyncoreClient
 from ..tpl import TplCentralClient
@@ -781,6 +782,66 @@ def create_app(boot: Bootstrap) -> FastAPI:
         return redirect("/shipping", f"Deleted override for “{rule['ship_via']}”.")
 
     # --- users ----------------------------------------------------------------------
+
+    # --- Allowed SKUs ---------------------------------------------------------------
+
+    @app.get("/skus", response_class=HTMLResponse)
+    def skus_page(request: Request, client: Optional[int] = None, db: Database = Depends(get_db)):
+        rows = db.list_allowed_skus(client)
+        counts: dict = {}
+        for r in db.list_allowed_skus():
+            counts[r["client_pk"]] = counts.get(r["client_pk"], 0) + 1
+        return render(request, db, "skus.html", rows=rows, clients=db.list_clients(), counts=counts,
+                      selected=client, sku_pattern=setting_values(db, box).get("SKU_PATTERN") or "INV|OD")
+
+    @app.post("/skus/add", dependencies=[Depends(csrf_protect)])
+    def skus_add(request: Request, client_pk: int = Form(...), sku: str = Form(...), description: str = Form(""),
+                 db: Database = Depends(get_db)):
+        client = db.get_client(client_pk)
+        sku = sku.strip()
+        if client is None or not sku or len(sku) > 100:
+            return redirect("/skus", "Choose a client and enter a SKU.", "error")
+        if not db.add_allowed_sku(client_pk, sku, description[:200], username(request)):
+            return redirect(f"/skus?client={client_pk}", f"{sku} is already allowed for {client['name']}.", "info")
+        db.audit(username(request), "skus.add", f"{client['name']}: {sku}")
+        return redirect(f"/skus?client={client_pk}", f"{sku} is now allowed for {client['name']}.")
+
+    @app.post("/skus/import", dependencies=[Depends(csrf_protect)])
+    async def skus_import(request: Request, file: UploadFile = File(...), db: Database = Depends(get_db)):
+        data = await file.read(2_000_001)
+        if len(data) > 2_000_000:
+            return redirect("/skus", "That file is over 2 MB.", "error")
+        try:
+            rows = read_sheet(file.filename or "", data)
+        except SheetError as exc:
+            return redirect("/skus", str(exc), "error")
+        added = existing = 0
+        unmatched: dict = {}
+        for name, sku, description in rows[:5000]:
+            client = db.find_client_by_name(name)
+            if client is None:
+                unmatched[name] = unmatched.get(name, 0) + 1
+                continue
+            if db.add_allowed_sku(client["id"], sku[:100], (description or "")[:200], username(request)):
+                added += 1
+            else:
+                existing += 1
+        db.audit(username(request), "skus.import", f"{file.filename}: {added} added, {existing} already there, "
+                                                    f"{sum(unmatched.values())} unmatched")
+        message = f"Imported {file.filename}: {added} SKU(s) added" + (f", {existing} already listed" if existing else "")
+        if unmatched:
+            names = "; ".join(f"{n} ({c})" for n, c in sorted(unmatched.items()))
+            message += (f". No client found for: {names}. Add those SKUs below with the right client, or rename the "
+                        f"client in the sheet to match the Clients page.")
+        return redirect("/skus", message + ("" if unmatched else "."), "info" if unmatched else "success")
+
+    @app.post("/skus/{sku_id}/delete", dependencies=[Depends(csrf_protect)])
+    def skus_delete(request: Request, sku_id: int, client: Optional[int] = Form(None), db: Database = Depends(get_db)):
+        row = db.delete_allowed_sku(sku_id)
+        if row is None:
+            raise HTTPException(404, "SKU not found.")
+        db.audit(username(request), "skus.delete", f"{row['client_name']}: {row['sku']}")
+        return redirect(f"/skus?client={client}" if client else "/skus", f"Removed {row['sku']} for {row['client_name']}.")
 
     @app.get("/users", response_class=HTMLResponse)
     def users_page(request: Request, db: Database = Depends(get_db)):

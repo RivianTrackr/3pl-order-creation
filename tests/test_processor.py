@@ -433,3 +433,24 @@ def test_wip_job_that_was_never_submitted_is_still_held(env):
     syncore.job_status = "WIP"
     proc.run(NOW)
     assert db.get(900)["state"] == "held" and not db.get(900)["job_submitted_at"]
+
+
+def test_allowed_sku_is_sent_for_its_own_client_only(env):
+    proc, db, syncore, tpl, _ = env([make_po(sku="CENT037", qty=2)])
+    tpl.items.append({"sku": "CENT037", "description": "14 Grande Wall Clock - Black"})
+    proc.run(NOW)
+    assert db.get(900)["state"] == "skipped"          # not allowed yet
+
+    client_pk = db.list_clients()[0]["id"]
+    other = db.save_client(None, name="Other Co", source="manual")
+    db.add_allowed_sku(other, "CENT037", None, "test")
+    syncore.pos[900]["last_modified_date"] = "2026-09-17 12:30:00"
+    proc.run(NOW)
+    row = db.get(900)
+    assert row["state"] == "skipped" and "Client Inc's Allowed SKUs" in row["skip_reason"]
+
+    db.add_allowed_sku(client_pk, "cent037", "Wall clock", "test")
+    syncore.pos[900]["last_modified_date"] = "2026-09-17 12:45:00"
+    proc.run(NOW)
+    assert db.get(900)["state"] == "done"
+    assert tpl.created[0]["orderItems"] == [{"itemIdentifier": {"sku": "CENT037"}, "qty": 2}]

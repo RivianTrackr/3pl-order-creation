@@ -28,6 +28,15 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     job_submitted_at TEXT,          -- when this tool first saw the PO's job in a "send" status
     updated_at     TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS allowed_skus (       -- client SKUs sent even without INV/OD in them
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_pk   INTEGER NOT NULL,
+    sku         TEXT NOT NULL COLLATE NOCASE,
+    description TEXT,
+    created_at  TEXT NOT NULL,
+    created_by  TEXT,
+    UNIQUE(client_pk, sku)
+);
 CREATE TABLE IF NOT EXISTS settings (
     key         TEXT PRIMARY KEY,
     value       TEXT,               -- encrypted for secret settings
@@ -335,6 +344,49 @@ class Database:
         with self.conn:
             self.conn.execute("DELETE FROM clients WHERE id = ?", (client_pk,))
             self.conn.execute("DELETE FROM client_suggestions WHERE client_pk = ?", (client_pk,))
+            self.conn.execute("DELETE FROM allowed_skus WHERE client_pk = ?", (client_pk,))
+
+    def find_client_by_name(self, name: str) -> Optional[sqlite3.Row]:
+        """The client a spreadsheet name refers to: its name or 3PL Central name, loosely compared.
+        "The Baldwin Group/TBG" also tries each part on its own."""
+        wanted = [company_key(name)] + [company_key(p) for p in name.split("/") if p.strip()]
+        wanted = [w for w in wanted if w]
+        for key in wanted:
+            for row in self.list_clients():
+                if key in (company_key(row["name"]), company_key(row["tpl_customer_name"])):
+                    return row
+        return None
+
+    # --- allowed SKUs -----------------------------------------------------------
+
+    def list_allowed_skus(self, client_pk: Optional[int] = None) -> List[sqlite3.Row]:
+        sql = ("SELECT a.*, c.name AS client_name FROM allowed_skus a JOIN clients c ON c.id = a.client_pk")
+        params: tuple = ()
+        if client_pk:
+            sql += " WHERE a.client_pk = ?"
+            params = (client_pk,)
+        return self.conn.execute(sql + " ORDER BY c.name COLLATE NOCASE, a.sku COLLATE NOCASE", params).fetchall()
+
+    def add_allowed_sku(self, client_pk: int, sku: str, description: Optional[str], username: Optional[str]) -> bool:
+        """False if the client already has that SKU."""
+        with self.conn:
+            cur = self.conn.execute(
+                "INSERT OR IGNORE INTO allowed_skus(client_pk, sku, description, created_at, created_by) "
+                "VALUES(?, ?, ?, ?, ?)", (client_pk, sku.strip(), (description or "").strip() or None, utcnow(), username))
+            return cur.rowcount == 1
+
+    def delete_allowed_sku(self, sku_id: int) -> Optional[sqlite3.Row]:
+        row = self.conn.execute("SELECT a.*, c.name AS client_name FROM allowed_skus a JOIN clients c "
+                                "ON c.id = a.client_pk WHERE a.id = ?", (sku_id,)).fetchone()
+        with self.conn:
+            self.conn.execute("DELETE FROM allowed_skus WHERE id = ?", (sku_id,))
+        return row
+
+    def allowed_skus_by_client(self) -> Dict[int, set]:
+        found: Dict[int, set] = {}
+        for r in self.conn.execute("SELECT client_pk, sku FROM allowed_skus"):
+            found.setdefault(r["client_pk"], set()).add(r["sku"].casefold())
+        return found
 
     def assign_syncore_group(self, client_pk: int, syncore_group_id: str, syncore_group_name: Optional[str]) -> Optional[str]:
         """Give a client its Syncore client group. A placeholder that was added automatically
