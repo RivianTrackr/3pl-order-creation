@@ -84,6 +84,14 @@ def test_settings_secret_is_encrypted_and_kept_when_blank(client, boot):
     assert settings.vendor_name == "Example Supplier LLC"
 
 
+def test_a_job_status_cant_be_both_sent_and_ignored(client, boot):
+    login(client)
+    resp = client.post("/settings", data={"_csrf": csrf(client), "SYNCORE_JOB_STATUSES": "Submitted, Delivered",
+                                          "SYNCORE_JOB_STATUSES_IGNORE": "Delivered, Completed"})
+    assert "be both sent and ignored" in resp.text and "Delivered" in resp.text
+    assert "SYNCORE_JOB_STATUSES_IGNORE" not in Database(boot.db_path).settings_raw()
+
+
 def test_email_toggles_on_the_settings_page(client, boot):
     login(client)
     db = Database(boot.db_path)

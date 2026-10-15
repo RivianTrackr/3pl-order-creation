@@ -12,7 +12,7 @@ For each PO created after go-live:
 
 1. **Waits** until the PO hasn't changed for the settle time (default 15 minutes), so a PO still being filled in isn't sent half-finished.
 2. **Filters.** The vendor must match the setting, and only lines whose SKU matches the SKU pattern (default `INV|OD`) are sent. POs with no matching lines are skipped. If a skipped PO is edited later, it's checked again.
-3. **Waits for the job to be submitted.** The PO's Syncore job must be in one of the "Job statuses to send" (default Submitted, WIP, Delivered or Completed). A PO on a job that's still **Pending** is put **on hold** and checked again every run, then sent as soon as the job is submitted.
+3. **Waits for the job to be submitted.** The PO's Syncore job must be in one of the "Job statuses to send" (default Submitted). A PO on a job in any other status, such as Pending or WIP, is put **on hold** and checked again every run, then sent as soon as the job is submitted. Jobs in a "Job status to ignore" (default Delivered or Completed) are already done, so their POs are skipped.
 4. **Finds the client.** The PO's job names a Syncore contact; that contact's **client group** identifies the company, so store billing, employees and dropship contacts all map to one client on the **Clients** page. A PO from a client that isn't set up is **skipped** (no alert). The client still appears on the Clients page, and once it's finished a skipped PO can be sent with **Process** on the dashboard.
 5. **Creates the 3PL order.**
    - The reference number is `<job number>-<PO number>`, e.g. `12345-3`. If the client already has an order with that reference number **or** PO number, it's reused instead of creating a second one.

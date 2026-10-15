@@ -108,7 +108,8 @@ class Settings:
     backup_keep_days: int = 14
     paused: bool = False
     display_timezone: str = "America/New_York"
-    job_statuses: Tuple[str, ...] = ("submitted", "wip", "delivered", "completed")
+    job_statuses: Tuple[str, ...] = ("submitted",)
+    ignore_job_statuses: Tuple[str, ...] = ("delivered", "completed")
     emails: Dict[str, bool] = field(default_factory=lambda: dict(EMAIL_DEFAULTS))
 
     clients: Dict[str, TplClient] = field(default_factory=dict)
@@ -153,6 +154,11 @@ def shipping_overrides(db: Database) -> Dict[str, dict]:
             "account": r["account"], "billingCode": r["billing_code"],
         } for r in db.list_shipping_rules()
     }
+
+
+def status_list(value: Optional[str]) -> Tuple[str, ...]:
+    """"Submitted, WIP" -> ("submitted", "wip")."""
+    return tuple(s.strip().casefold() for s in (value or "").split(",") if s.strip())
 
 
 def load_settings(db: Database, box: SecretBox, db_path: str, require_complete: bool = True) -> Settings:
@@ -203,7 +209,8 @@ def load_settings(db: Database, box: SecretBox, db_path: str, require_complete: 
         display_timezone=v["DISPLAY_TIMEZONE"] or "America/New_York",
         emails={kind: (v[f"EMAIL_{kind.upper()}"] or str(on).lower()) == "true"
                 for kind, on in EMAIL_DEFAULTS.items()},
-        job_statuses=tuple(s.strip().casefold() for s in (v["SYNCORE_JOB_STATUSES"] or "").split(",") if s.strip()),
+        job_statuses=status_list(v["SYNCORE_JOB_STATUSES"]),
+        ignore_job_statuses=status_list(v["SYNCORE_JOB_STATUSES_IGNORE"]),
         clients=clients,
         shipping_map=shipping_map,
     )

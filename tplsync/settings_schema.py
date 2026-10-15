@@ -32,10 +32,12 @@ SETTINGS: Tuple[SettingDef, ...] = (
                     "the supplier that holds your inventory."),
     SettingDef("SKU_PATTERN", "SKU pattern", "syncore", default="INV|OD", required=True,
                help="Regular expression. PO lines whose SKU matches are included (case-sensitive)."),
-    SettingDef("SYNCORE_JOB_STATUSES", "Job statuses to send", "syncore",
-               default="Submitted, WIP, Delivered, Completed",
+    SettingDef("SYNCORE_JOB_STATUSES", "Job statuses to send", "syncore", default="Submitted",
                help="A PO is only sent once its Syncore job is in one of these statuses (comma-separated). "
-                    "Until then it's held, e.g. while the job is still Pending, and checked again every run."),
+                    "In any other status (e.g. Pending or WIP) it's held and checked again every run."),
+    SettingDef("SYNCORE_JOB_STATUSES_IGNORE", "Job statuses to ignore", "syncore", default="Delivered, Completed",
+               help="Jobs in these statuses are already done: their POs are skipped and not checked again "
+                    "(comma-separated)."),
 
     SettingDef("TPL_BASE_URL", "API base URL", "tpl", default="https://secure-wms.com"),
     SettingDef("TPL_USER_LOGIN", "User login", "tpl", required=True,

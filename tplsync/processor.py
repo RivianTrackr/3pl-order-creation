@@ -339,6 +339,9 @@ class Processor:
 
         job = self.syncore.get_job(job_id)
         status = str(job.get("status") or "")
+        if order_id is None and status.casefold() in self.s.ignore_job_statuses \
+                and status.casefold() not in self.s.job_statuses:
+            raise SkipPO(f"Syncore job {job_id} is {status}, so it's already done", ref, {"job_status": status})
         if order_id is None and status.casefold() not in self.s.job_statuses:
             raise HoldPO(f"Syncore job {job_id} is {status or 'without a status'}; it's sent once the job is "
                          f"{_or_list(self.s.job_statuses)}", ref, {"job_status": status})

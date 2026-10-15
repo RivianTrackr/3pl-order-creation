@@ -22,7 +22,7 @@ from .. import carriers as carrier_match
 from .. import clientmatch
 from .. import maintenance
 from ..config import (ROOT, Bootstrap, ConfigError, TplClient, any_ready_client, load_settings,
-                      missing_required, setting_values, shipping_overrides)
+                      missing_required, setting_values, shipping_overrides, status_list)
 from ..db import Database, client_missing, client_status, company_key, utcnow
 from ..http import ApiError
 from ..notify import Notifier
@@ -417,6 +417,12 @@ def create_app(boot: Bootstrap) -> FastAPI:
                         ZoneInfo(value)
                     except (ZoneInfoNotFoundError, ValueError):
                         errors.append("Display time zone is not a valid IANA name (e.g. America/New_York).")
+                        continue
+                if d.key == "SYNCORE_JOB_STATUSES_IGNORE":
+                    both = set(status_list(value)) & set(status_list(str(form.get("SYNCORE_JOB_STATUSES", ""))))
+                    if both:
+                        errors.append(f"{', '.join(sorted(s.title() for s in both))} can't be both sent and "
+                                      f"ignored. Remove it from one of the job status lists.")
                         continue
                 value_to_store = value or None
                 if current.get(d.key) == value_to_store or (current.get(d.key) is None and value == (d.default or "")):

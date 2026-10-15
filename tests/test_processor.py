@@ -362,6 +362,26 @@ def test_po_waits_until_its_job_is_submitted(env):
     assert len(tpl.created) == 1 and db.get(900)["state"] == "done"
 
 
+def test_po_on_a_delivered_job_is_skipped_not_held(env):
+    proc, db, syncore, tpl, notifier = env([make_po()])
+    syncore.job_status = "Delivered"
+    proc.run(NOW)
+    row = db.get(900)
+    assert tpl.created == [] and notifier.sent == []
+    assert row["state"] == "skipped" and "already done" in row["skip_reason"]
+
+
+def test_held_po_is_dropped_when_its_job_goes_straight_to_delivered(env):
+    proc, db, syncore, tpl, _ = env([make_po(po_id=901)])
+    syncore.job_status = "WIP"
+    proc.run(NOW)
+    assert db.get(901)["state"] == "held"
+    db.upsert(901, 12345, first_seen=(NOW - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%S"))
+    syncore.job_status = "Delivered"
+    proc.run(NOW)
+    assert db.get(901)["state"] == "skipped" and tpl.created == []
+
+
 def test_job_statuses_setting_controls_what_is_sent(env):
     proc, db, syncore, tpl, _ = env([make_po()])
     proc.s.job_statuses = ("submitted",)
