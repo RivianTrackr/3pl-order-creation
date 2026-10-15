@@ -407,3 +407,29 @@ def test_alert_emails_can_be_turned_off(env):
     assert notifier.sent == []
     proc._record_error(901, 12345, RuntimeError("3PL Central is down"))
     assert len(notifier.sent) == 1
+
+
+def test_po_is_ignored_when_its_job_goes_back_from_submitted_to_wip(env):
+    po = make_po(sku="MISSING-INV")
+    proc, db, syncore, tpl, notifier = env([po])
+    syncore.job_status = "Submitted"
+    proc.run(NOW)                       # seen while Submitted, but the SKU stops it
+    assert db.get(900)["state"] == "error" and db.get(900)["job_submitted_at"]
+
+    syncore.job_status = "WIP"          # the team pulled the job back
+    po["line_items"][0]["sku"] = "SHIRT-INV"
+    proc.run(NOW)
+    row = db.get(900)
+    assert row["state"] == "skipped" and "went back to WIP after being Submitted" in row["skip_reason"]
+    assert tpl.created == []
+
+    syncore.job_status = "Submitted"    # skipped POs aren't re-checked, so nothing is sent
+    proc.run(NOW)
+    assert tpl.created == []
+
+
+def test_wip_job_that_was_never_submitted_is_still_held(env):
+    proc, db, syncore, tpl, _ = env([make_po()])
+    syncore.job_status = "WIP"
+    proc.run(NOW)
+    assert db.get(900)["state"] == "held" and not db.get(900)["job_submitted_at"]

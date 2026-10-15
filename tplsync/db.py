@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     attempts       INTEGER NOT NULL DEFAULT 0,
     last_error     TEXT,
     alerted_error  TEXT,
+    job_submitted_at TEXT,          -- when this tool first saw the PO's job in a "send" status
     updated_at     TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS settings (
@@ -178,6 +179,12 @@ class Database:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self._migrate_clients()
         self.conn.executescript(SCHEMA)
+        self._add_column("purchase_orders", "job_submitted_at", "TEXT")
+
+    def _add_column(self, table: str, column: str, kind: str) -> None:
+        if column not in {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}:
+            with self.conn:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
     def _migrate_clients(self) -> None:
         """Clients are linked to Syncore client *groups* (every contact at a company shares one),
