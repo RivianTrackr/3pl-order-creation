@@ -786,7 +786,8 @@ def create_app(boot: Bootstrap) -> FastAPI:
     # --- Allowed SKUs ---------------------------------------------------------------
 
     @app.get("/skus", response_class=HTMLResponse)
-    def skus_page(request: Request, client: Optional[int] = None, db: Database = Depends(get_db)):
+    def skus_page(request: Request, client: str = "", db: Database = Depends(get_db)):
+        client = int(client) if client.isdigit() else None   # "All clients" sends client=
         rows = db.list_allowed_skus(client)
         counts: dict = {}
         for r in db.list_allowed_skus():
@@ -836,7 +837,8 @@ def create_app(boot: Bootstrap) -> FastAPI:
         return redirect("/skus", message + ("" if unmatched else "."), "info" if unmatched else "success")
 
     @app.post("/skus/{sku_id}/delete", dependencies=[Depends(csrf_protect)])
-    def skus_delete(request: Request, sku_id: int, client: Optional[int] = Form(None), db: Database = Depends(get_db)):
+    def skus_delete(request: Request, sku_id: int, client: str = Form(""), db: Database = Depends(get_db)):
+        client = client if client.isdigit() else ""
         row = db.delete_allowed_sku(sku_id)
         if row is None:
             raise HTTPException(404, "SKU not found.")

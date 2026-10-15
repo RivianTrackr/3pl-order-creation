@@ -365,6 +365,8 @@ def test_allowed_skus_import_add_and_remove(client, boot, tmp_path):
     client.post("/skus/add", data={"_csrf": token, "client_pk": centurion, "sku": "CENT058", "description": "Yeti"})
     page = client.get(f"/skus?client={centurion}").text
     assert "CENT058" in page and "boxnewhirekit1" not in page
+    everything = client.get("/skus?client=")            # the "All clients" choice
+    assert everything.status_code == 200 and "CENT058" in everything.text and "boxnewhirekit1" in everything.text
 
     sku_id = next(r["id"] for r in db.list_allowed_skus() if r["sku"] == "CENT058")
     client.post(f"/skus/{sku_id}/delete", data={"_csrf": token})
