@@ -70,7 +70,7 @@ def create_app(boot: Bootstrap) -> FastAPI:
             values = {}
         tz = _zone(values.get("DISPLAY_TIMEZONE"))
 
-        def localtime(value: Optional[str], seconds: bool = False) -> str:
+        def localtime(value: Optional[str], seconds: bool = False, short: bool = False) -> str:
             if not value:
                 return ""
             try:
@@ -79,7 +79,13 @@ def create_app(boot: Bootstrap) -> FastAPI:
                 return str(value)
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(tz).strftime("%-I:%M:%S %p" if seconds else "%b %-d, %Y %-I:%M %p")
+            local = dt.astimezone(tz)
+            if seconds:
+                return local.strftime("%-I:%M:%S %p")
+            if short:   # tables: leave the year off for this year
+                same_year = local.year == datetime.now(tz).year
+                return local.strftime("%b %-d, %-I:%M %p" if same_year else "%b %-d, %Y")
+            return local.strftime("%b %-d, %Y %-I:%M %p")
 
         flash = None
         if request.cookies.get(FLASH_COOKIE):
@@ -214,7 +220,7 @@ def create_app(boot: Bootstrap) -> FastAPI:
     # --- dashboard ------------------------------------------------------------------
 
     @app.get("/", response_class=HTMLResponse)
-    def dashboard(request: Request, state: Optional[str] = None, db: Database = Depends(get_db)):
+    def dashboard(request: Request, state: Optional[str] = None, q: str = "", db: Database = Depends(get_db)):
         values = setting_values(db, box)
         if state not in (None, "", "done", "problems", "waiting", "open_short", "skipped", "dismissed"):
             state = None
@@ -224,8 +230,9 @@ def create_app(boot: Bootstrap) -> FastAPI:
             ("Go-live date set", bool(db.get_meta("start_date")), None),
         ]
         return render(request, db, "dashboard.html",
-                      rows=db.recent(100, state=state or None, include_skipped=state in ("skipped", "dismissed")),
-                      counts=db.counts(), state=state or "", checklist=checklist,
+                      rows=db.recent(100, state=state or None, include_skipped=state in ("skipped", "dismissed"),
+                                     q=q[:60]),
+                      counts=db.counts(), state=state or "", q=q[:60], checklist=checklist,
                       setup_done=all(ok for _, ok, _ in checklist),
                       start_date=db.get_meta("start_date"),
                       last_started=db.get_meta("last_run_started"),
@@ -362,7 +369,9 @@ def create_app(boot: Bootstrap) -> FastAPI:
         events = _parse_data(db.list_events(1000, po_id=po_id))
         if not record and not events:
             raise HTTPException(404, "No record of that purchase order.")
-        return render(request, db, "logs_po.html", po_id=po_id, record=record, events=events,
+        client = next((r for r in db.recent(1, q=str(po_id)) if r["po_id"] == po_id), None)
+        return render(request, db, "logs_po.html", po_id=po_id, record=record, events=events, nav="dashboard",
+                      client_name=client["client_display"] if client else None,
                       emails=db.list_emails(200, po_id=po_id),
                       reference=(record["reference"] if record else None)
                       or next((e["reference"] for e in reversed(events) if e["reference"]), None))
@@ -494,8 +503,10 @@ def create_app(boot: Bootstrap) -> FastAPI:
         suggestion_counts: dict = {}
         for sgg in db.suggestions():
             suggestion_counts[sgg["client_pk"]] = suggestion_counts.get(sgg["client_pk"], 0) + 1
+        sku_counts = {pk: len(skus) for pk, skus in db.allowed_skus_by_client().items()}
         for i in items:
             i["suggestions"] = suggestion_counts.get(i["id"], 0)
+            i["allowed_skus"] = sku_counts.get(i["id"], 0)
         match_result = json.loads(db.get_meta("clients_match_result") or "null")
         return render(request, db, "clients.html", clients=items, counts=counts, show=show,
                       total=sum(counts.values()), synced_at=db.get_meta("tpl_customers_synced_at"),
@@ -572,7 +583,8 @@ def create_app(boot: Bootstrap) -> FastAPI:
         if not row:
             raise HTTPException(404, "Client not found.")
         return render(request, db, "clients_form.html", client=_client_view(row),
-                      suggestions=db.suggestions(client_pk), groups=clientmatch.cached_groups(db))
+                      suggestions=db.suggestions(client_pk), groups=clientmatch.cached_groups(db),
+                      allowed_skus=len(db.allowed_skus_by_client().get(client_pk, set())))
 
     @app.post("/clients/save", dependencies=[Depends(csrf_protect)])
     def client_save(request: Request, db: Database = Depends(get_db),

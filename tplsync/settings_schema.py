@@ -31,7 +31,8 @@ SETTINGS: Tuple[SettingDef, ...] = (
                help="Only POs from this Syncore vendor are sent to 3PL Central (case-insensitive), e.g. "
                     "the supplier that holds your inventory."),
     SettingDef("SKU_PATTERN", "SKU pattern", "syncore", default="INV|OD", required=True,
-               help="Regular expression. PO lines whose SKU matches are included (case-sensitive)."),
+               help="Regular expression. PO lines whose SKU matches are included (case-sensitive). Older SKUs "
+                    "without INV or OD go on the Allowed SKUs page."),
     SettingDef("SYNCORE_JOB_STATUSES", "Job statuses to send", "syncore", default="Submitted",
                help="A PO is only sent once its Syncore job is in one of these statuses (comma-separated). "
                     "In any other status (e.g. Pending or WIP) it's held and checked again every run."),
@@ -66,7 +67,7 @@ SETTINGS: Tuple[SettingDef, ...] = (
     SettingDef("PAUSED", "Pause processing", "behaviour", "bool", default="false",
                help="Scheduled runs do nothing while paused."),
     SettingDef("DRY_RUN", "Dry run", "behaviour", "bool", default="false",
-               help="Log what would be sent without creating orders, updating Syncore or emailing."),
+               help="Log what would be sent without creating orders in 3PL Central or sending emails."),
     SettingDef("AUTO_COMPLETE_OPEN", "Complete open orders when stock arrives", "behaviour", "bool", default="true",
                help="Re-check orders left Open for short stock on every run and complete them once the warehouse "
                     "has enough inventory."),

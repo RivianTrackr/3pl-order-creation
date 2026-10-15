@@ -34,7 +34,7 @@ Each kind of alert email (short stock, stock arrived, problems being retried, PO
 
 | Page | What's there |
 |---|---|
-| Dashboard | Setup checklist, counts, every PO's status and transaction number (click a reference for its timeline), Retry, Run now, "Test a purchase order" (preview or process one PO; opens its live log), Go live |
+| Dashboard | Setup checklist, counts, every PO with its client, status and 3PL order number (click a reference for its timeline), search by reference, PO id, job number or client, Retry / Process / Dismiss, Run now, "Test a purchase order" (preview or process one PO; opens its live log), Go live |
 | Clients | Every client shipping through the warehouse, with what each still needs (Syncore client ID, 3PL Customer ID, Client ID, Client Secret) before it can be activated. Clients are added automatically when their first qualifying PO arrives and linked by name to an existing entry; more can be added by name. Test connection, pause/activate. |
 | Allowed SKUs | Older client SKUs that don't contain INV or OD but should still go to 3PL Central. Import an .xlsx or .csv (client name, SKU, description) or add them one at a time. A SKU only counts for the client it's listed under. |
 | Ship Via | The warehouse's carriers and service codes loaded from 3PL Central (refreshed automatically every 6 hours), a tester that shows how any Ship Via text will be matched, and overrides for your team's shorthand (e.g. `UPS GRND` → UPS / Ground). A shipping account number written as the last word (`UPS GRND C713X7`) becomes the order's account; a last word that names a service in 3PL Central (`UPS 3DAY`) stays part of the shorthand. |

@@ -383,3 +383,20 @@ def test_allowed_skus_csv_and_bad_files(client, boot):
     assert "1 SKU(s) added" in resp.text
     resp = client.post("/skus/import", data={"_csrf": token}, files={"file": ("list.pdf", b"%PDF", "application/pdf")})
     assert "Upload an .xlsx or .csv file" in resp.text
+
+
+def test_dashboard_shows_client_and_searches(client, boot):
+    login(client)
+    db = Database(boot.db_path)
+    db.save_client(None, name="Centurion", syncore_group_id="20011", source="manual")
+    db.upsert(501, 77673, state="error", reference="77673-1", client_id="20011", client_name="Centurion Group",
+              last_error="CENT017INV-27132 is not an item", attempts=3)
+    db.upsert(502, 77700, state="held", reference="77700-1", client_name="Spot Hero",
+              skip_reason="Syncore job 77700 is WIP")
+    page = client.get("/").text
+    assert "Centurion" in page and "Spot Hero" in page and "On hold" in page
+    found = client.get("/?q=centurion").text
+    assert "77673-1" in found and "77700-1" not in found and "1 result" in found
+    assert "77700-1" in client.get("/?q=77700").text
+    po_page = client.get("/po/501").text
+    assert "Centurion" in po_page and "Dismiss" in po_page and "Retry" in po_page

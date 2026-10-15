@@ -9,7 +9,7 @@ document.addEventListener("submit", function (event) {
 
   var mode = form.querySelector("[data-live-warning]");
   if (mode && mode.value === "live" &&
-      !window.confirm("This creates a real order in 3PL Central, completes it if stock allows, and updates the Syncore PO. Continue?")) {
+      !window.confirm("This creates a real order in 3PL Central and completes it if there's enough stock. Continue?")) {
     event.preventDefault();
     return;
   }
@@ -70,6 +70,36 @@ document.addEventListener("submit", function (event) {
 })();
 
 // Selects that filter a page as soon as they change.
-document.querySelectorAll("select[data-autosubmit]").forEach(function (select) {
+document.querySelectorAll("[data-autosubmit]").forEach(function (select) {
   select.addEventListener("change", function () { select.form.submit(); });
+});
+
+// Close buttons on flash messages.
+document.querySelectorAll("[data-dismiss-notice]").forEach(function (button) {
+  button.addEventListener("click", function () { button.closest(".notice").remove(); });
+});
+
+// Table rows that open a page when clicked anywhere (links and buttons inside still work).
+document.querySelectorAll("tr[data-href]").forEach(function (row) {
+  row.addEventListener("click", function (event) {
+    if (event.target.closest("a, button, input, select, label, form")) return;
+    window.location.href = row.dataset.href;
+  });
+});
+
+// Instant filter for a list of rows: <input data-filter-rows="#tbody-id">, rows carry data-filter-text.
+document.querySelectorAll("input[data-filter-rows]").forEach(function (input) {
+  var body = document.querySelector(input.dataset.filterRows);
+  if (!body) return;
+  var empty = body.closest(".table-wrap") && body.closest(".table-wrap").querySelector(".empty-filter");
+  input.addEventListener("input", function () {
+    var needle = input.value.trim().toLowerCase();
+    var shown = 0;
+    body.querySelectorAll("tr[data-filter-text]").forEach(function (row) {
+      var match = !needle || row.dataset.filterText.indexOf(needle) !== -1;
+      row.hidden = !match;
+      if (match) shown += 1;
+    });
+    if (empty) empty.hidden = shown !== 0;
+  });
 });

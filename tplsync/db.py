@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     last_error     TEXT,
     alerted_error  TEXT,
     job_submitted_at TEXT,          -- when this tool first saw the PO's job in a "send" status
+    client_name    TEXT,            -- the Syncore client group's name, for display
     updated_at     TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS allowed_skus (       -- client SKUs sent even without INV/OD in them
@@ -189,6 +190,7 @@ class Database:
         self._migrate_clients()
         self.conn.executescript(SCHEMA)
         self._add_column("purchase_orders", "job_submitted_at", "TEXT")
+        self._add_column("purchase_orders", "client_name", "TEXT")
 
     def _add_column(self, table: str, column: str, kind: str) -> None:
         if column not in {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}:
@@ -254,25 +256,35 @@ class Database:
             f"SELECT * FROM purchase_orders WHERE state IN ({marks}) ORDER BY first_seen", ACTIVE_STATES
         ).fetchall()
 
-    def recent(self, limit: int = 50, state: Optional[str] = None, include_skipped: bool = False) -> List[sqlite3.Row]:
+    def recent(self, limit: int = 50, state: Optional[str] = None, include_skipped: bool = False,
+               q: Optional[str] = None) -> List[sqlite3.Row]:
+        """POs for the dashboard, newest first, with the client's name from the Clients page where known.
+        q searches the reference, PO id, job number and client name across every state."""
         where, params = [], []
+        q = (q or "").strip()
+        if q:
+            where.append("(p.reference LIKE ? OR CAST(p.po_id AS TEXT) = ? OR CAST(p.job_id AS TEXT) = ? "
+                         "OR c.name LIKE ? OR p.client_name LIKE ?)")
+            params += [f"%{q}%", q, q, f"%{q}%", f"%{q}%"]
+            include_skipped = True
         if state == "open_short":
-            where.append("completion = 'open_short'")
+            where.append("p.completion = 'open_short'")
         elif state == "problems":
-            where.append("state IN ('error', 'failed')")
+            where.append("p.state IN ('error', 'failed')")
         elif state == "done":
-            where.append("state = 'done' AND completion = 'completed'")
+            where.append("p.state = 'done' AND p.completion = 'completed'")
         elif state == "waiting":
-            where.append("state IN ('waiting', 'held', 'processing')")
+            where.append("p.state IN ('waiting', 'held', 'processing')")
         elif state:
-            where.append("state = ?")
+            where.append("p.state = ?")
             params.append(state)
         elif not include_skipped:
-            where.append("state NOT IN ('skipped', 'dismissed')")
-        sql = "SELECT * FROM purchase_orders"
+            where.append("p.state NOT IN ('skipped', 'dismissed')")
+        sql = ("SELECT p.*, COALESCE(c.name, p.client_name) AS client_display FROM purchase_orders p "
+               "LEFT JOIN clients c ON c.syncore_group_id = p.client_id")
         if where:
             sql += " WHERE " + " AND ".join(where)
-        return self.conn.execute(sql + " ORDER BY updated_at DESC LIMIT ?", (*params, limit)).fetchall()
+        return self.conn.execute(sql + " ORDER BY p.updated_at DESC LIMIT ?", (*params, limit)).fetchall()
 
     def event_counts_since(self, since: str) -> Dict[str, int]:
         return {r["event"]: r["n"] for r in self.conn.execute(

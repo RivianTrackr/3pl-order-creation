@@ -7,7 +7,7 @@
     <h1 class="page-title">{{ client.name if client else 'Add client' }}
       {% if client %}
         {% if client.status == 'ready' %}<span class="badge badge-success">Active</span>
-        {% elif client.status == 'paused' %}<span class="badge badge-muted">Ready, not active</span>
+        {% elif client.status == 'paused' %}<span class="badge badge-muted">Paused</span>
         {% else %}<span class="badge badge-warning">Needs info</span>{% endif %}
       {% endif %}
     </h1>
@@ -144,6 +144,20 @@
       </div>
     </div>
   </section>
+
+  {% if client %}
+  <section class="card">
+    <div class="field-row">
+      <div class="field-row-label">
+        <label>Allowed SKUs</label>
+        <p class="field-description">Older SKUs without INV or OD that should still be sent for this client.</p>
+      </div>
+      <div class="field-row-control">
+        <a class="btn btn-secondary" href="/skus?client={{ client.id }}"><i class="fa-solid fa-barcode"></i> {{ allowed_skus }} allowed SKU{{ '' if allowed_skus == 1 else 's' }}</a>
+      </div>
+    </div>
+  </section>
+  {% endif %}
 
   <div class="sticky-actions">
     <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save client</button>

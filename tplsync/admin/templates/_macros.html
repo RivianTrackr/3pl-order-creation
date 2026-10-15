@@ -11,6 +11,36 @@
   {{ {'scheduled': 'Scheduled', 'manual': 'Run now', 'test': 'PO test', 'clients': 'Client matching'}.get(kind, kind) }}
 {%- endmacro %}
 
+{# One status badge for a PO, used on the dashboard and the PO page. #}
+{% macro po_status(r) -%}
+  {% if r.completion == 'open_short' %}<span class="badge badge-warning"><i class="fa-solid fa-box-open"></i> Open: short stock</span>
+  {% elif r.state == 'done' %}<span class="badge badge-success"><i class="fa-solid fa-check"></i> Completed</span>
+  {% elif r.state == 'failed' %}<span class="badge badge-error"><i class="fa-solid fa-circle-xmark"></i> Failed</span>
+  {% elif r.state == 'error' %}<span class="badge badge-error-soft"><i class="fa-solid fa-rotate"></i> Retrying ({{ r.attempts }})</span>
+  {% elif r.state == 'held' %}<span class="badge badge-info"><i class="fa-solid fa-pause"></i> On hold</span>
+  {% elif r.state in ('waiting', 'processing') %}<span class="badge badge-muted"><i class="fa-solid fa-hourglass-half"></i> {{ 'Processing' if r.state == 'processing' else 'Waiting' }}</span>
+  {% elif r.state == 'skipped' %}<span class="badge badge-muted"><i class="fa-solid fa-forward"></i> Skipped</span>
+  {% elif r.state == 'dismissed' %}<span class="badge badge-muted"><i class="fa-solid fa-ban"></i> Dismissed</span>
+  {% else %}<span class="badge badge-muted">{{ state_labels.get(r.state, r.state) }}</span>{% endif %}
+{%- endmacro %}
+
+{# Retry / Process / Restore and Dismiss for a PO. #}
+{% macro po_actions(r, labelled=False) -%}
+  {% if r.state in ('failed', 'error', 'dismissed', 'skipped') %}
+  <form method="post" action="/po/{{ r.po_id }}/retry">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <button class="btn btn-{{ 'primary' if labelled else 'secondary' }} btn-sm" title="{{ {'dismissed': 'Bring this PO back', 'skipped': 'Process this PO on the next run'}.get(r.state, 'Try again on the next run') }}">
+      <i class="fa-solid {{ 'fa-arrow-rotate-left' if r.state == 'dismissed' else 'fa-rotate-right' }}"></i> {{ {'dismissed': 'Restore', 'skipped': 'Process'}.get(r.state, 'Retry') }}</button>
+  </form>
+  {% endif %}
+  {% if r.state in ('failed', 'error', 'waiting', 'held') %}
+  <form method="post" action="/po/{{ r.po_id }}/dismiss" data-confirm="Dismiss {{ r.reference or ('PO ' ~ r.po_id) }}? It won't be sent to 3PL Central.">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <button class="btn {{ 'btn-danger' if labelled else 'btn-danger-ghost' }} btn-sm" title="Don't send this PO to 3PL Central"><i class="fa-solid fa-ban"></i><span class="{{ '' if labelled else 'sr-only' }}">Dismiss</span></button>
+  </form>
+  {% endif %}
+{%- endmacro %}
+
 {% macro email_status(status) -%}
   {% if status == 'sent' %}<span class="badge badge-success">Sent</span>
   {% elif status == 'failed' %}<span class="badge badge-error">Failed</span>

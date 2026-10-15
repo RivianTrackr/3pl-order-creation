@@ -316,6 +316,8 @@ class Processor:
         if po is None:
             raise RuntimeError(f"PO {po_id} not found on Syncore job {job_id}")
         ref = mapping.reference_number(po)
+        if not dry and (rec is None or rec["reference"] != ref):
+            self.db.upsert(po_id, job_id, reference=ref)
         supplier = (po.get("supplier") or {}).get("name")
         try:
             lines = mapping.order_lines(po, self.s.sku_pattern, self._all_allowed())
@@ -344,6 +346,15 @@ class Processor:
                          {"skus_on_po": mapping.po_skus(po)})
 
         job = self.syncore.get_job(job_id)
+        client = job.get("client") or {}
+        client_id = str(client.get("id") or "")
+        client_label = client.get("business_name") or client.get("name") or "unknown"
+        if not client_id:
+            raise RuntimeError("The Syncore job has no client.")
+        group_id, group_name = self.client_group(client_id)
+        if not dry:   # shown on the dashboard, whatever happens to the PO next
+            self.db.upsert(po_id, job_id, reference=ref, client_id=group_id or None,
+                           client_name=group_name or client_label)
         status = str(job.get("status") or "")
         if order_id is None and status.casefold() in self.s.ignore_job_statuses \
                 and status.casefold() not in self.s.job_statuses:
@@ -358,12 +369,6 @@ class Processor:
         if order_id is None and status.casefold() not in self.s.job_statuses:
             raise HoldPO(f"Syncore job {job_id} is {status or 'without a status'}; it's sent once the job is "
                          f"{_or_list(self.s.job_statuses)}", ref, {"job_status": status})
-        client = job.get("client") or {}
-        client_id = str(client.get("id") or "")
-        client_label = client.get("business_name") or client.get("name") or "unknown"
-        if not client_id:
-            raise RuntimeError("The Syncore job has no client.")
-        group_id, group_name = self.client_group(client_id)
         if not group_id:
             raise SkipPO(f"Syncore client {client_id} ({client_label}) isn't in a client group, so it can't be "
                          f"matched to a 3PL Central client", ref, {"syncore_client": client_id})

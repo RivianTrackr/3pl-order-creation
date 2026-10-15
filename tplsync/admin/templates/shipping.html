@@ -4,7 +4,7 @@
 <header class="page-header">
   <div>
     <h1 class="page-title">Ship Via</h1>
-    <p class="page-subtitle">Each order ships the way its PO says. The PO's <strong>Ship Via</strong> is matched to the warehouse's carrier and service codes in 3PL Central, e.g. “USPS Priority Mail” becomes USPS with that service's code. A shipping <strong>account number written at the end</strong> (“UPS GRND C713X7”) is used as the order's account; words that name a service (“UPS 3DAY”) are never taken for one. If there's no confident match, the order isn't created and you get an alert.</p>
+    <p class="page-subtitle">How each PO's <strong>Ship Via</strong> becomes a carrier and service in 3PL Central.</p>
   </div>
   <form method="post" action="/shipping/refresh-carriers">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
@@ -13,6 +13,17 @@
     </button>
   </form>
 </header>
+
+<details class="help-box">
+  <summary><i class="fa-solid fa-circle-question"></i> How Ship Via is matched</summary>
+  <ul>
+    <li>The Ship Via is matched to the warehouse's carriers and service codes: “USPS Priority Mail” becomes USPS with that service's code.</li>
+    <li>Your team's shorthand (“UPS GRND”) is matched through an <strong>override</strong> below.</li>
+    <li>A shipping <strong>account number at the end</strong> (“UPS GRND C713X7”) is used as the order's account. Words that name a service (“UPS 3DAY”) are never taken for one.</li>
+    <li>Billing codes are translated for each carrier, e.g. BillThirdParty is sent to FedEx as “third party”.</li>
+    <li>If there's no confident match, the order isn't created and you get an alert.</li>
+  </ul>
+</details>
 
 {% if not carriers %}
 <div class="notice notice-warning"><i class="fa-solid fa-triangle-exclamation"></i>
@@ -45,8 +56,9 @@
 <section class="card">
   <div class="card-header">
     <h2 class="card-title"><i class="fa-solid fa-right-left"></i> Overrides</h2>
-    <span class="muted small">Your team's shorthand. Enter it without the account number: “UPS GRND”, not “UPS GRND C713X7”</span>
+    <span class="muted small">{{ rules | length }} shorthand{{ '' if rules | length == 1 else 's' }}</span>
   </div>
+  {% if carriers %}<p class="card-note">Enter your team's shorthand <strong>without</strong> the account number: “UPS GRND”, not “UPS GRND C713X7”. The account is read from each PO.</p>{% endif %}
   {% if carriers %}
   <form method="post" action="/shipping/save" class="card-body" id="override-form" data-carriers="{{ carriers_json }}">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
@@ -90,16 +102,16 @@
 
   {% if rules %}
   <div class="table-wrap {{ 'card-body-divided' if carriers }}">
-    <table class="table">
+    <table class="table table-stack">
       <thead><tr><th>Shorthand</th><th>Carrier</th><th>Service code</th><th>Billing</th><th>Default account</th><th></th></tr></thead>
       <tbody>
         {% for r in rules %}
         <tr>
-          <td class="strong">{{ r.ship_via }}</td>
-          <td>{{ r.carrier }}</td>
-          <td class="mono">{{ r.mode or '-' }}</td>
-          <td>{{ r.billing_code or 'Default' }}</td>
-          <td class="mono">{{ r.account or 'From the PO' }}</td>
+          <td class="strong mono" data-label="Shorthand">{{ r.ship_via }}</td>
+          <td data-label="Carrier">{{ r.carrier }}</td>
+          <td class="mono" data-label="Service code">{{ r.mode or '—' }}</td>
+          <td data-label="Billing">{% if r.billing_code %}{{ r.billing_code }}{% else %}<span class="muted">Default</span>{% endif %}</td>
+          <td data-label="Default account">{% if r.account %}<span class="mono">{{ r.account }}</span>{% else %}<span class="muted">From the PO</span>{% endif %}</td>
           <td class="row-actions">
             <a class="btn btn-secondary btn-sm" href="/shipping?edit={{ r.id }}"><i class="fa-solid fa-pen"></i><span class="sr-only">Edit {{ r.ship_via }}</span></a>
             <form method="post" action="/shipping/{{ r.id }}/delete" data-confirm="Delete the override for “{{ r.ship_via }}”?">

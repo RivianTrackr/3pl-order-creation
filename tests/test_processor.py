@@ -454,3 +454,13 @@ def test_allowed_sku_is_sent_for_its_own_client_only(env):
     proc.run(NOW)
     assert db.get(900)["state"] == "done"
     assert tpl.created[0]["orderItems"] == [{"itemIdentifier": {"sku": "CENT037"}, "qty": 2}]
+
+
+def test_held_and_skipped_pos_record_their_reference_and_client(env):
+    proc, db, syncore, tpl, _ = env([make_po(po_id=901), make_po(po_id=902, sku="PLAIN-123")])
+    syncore.job_status = "WIP"
+    proc.run(NOW)
+    held, skipped = db.get(901), db.get(902)
+    assert held["state"] == "held" and held["reference"] == "12345-3"
+    assert held["client_id"] == "5001" and held["client_name"] == "Client Inc"
+    assert skipped["state"] == "skipped" and skipped["reference"] == "12345-3"

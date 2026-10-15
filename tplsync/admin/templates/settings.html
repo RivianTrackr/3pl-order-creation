@@ -15,6 +15,10 @@
 <div class="notice notice-warning"><i class="fa-solid fa-triangle-exclamation"></i><span>Still needed before orders can be processed: {{ missing | join(', ') }}.</span></div>
 {% endif %}
 
+<nav class="jump-nav" aria-label="Settings sections">
+  {% for section_key, section_name, icon in sections %}<a href="#{{ section_key }}"><i class="{{ icon }}"></i> {{ section_name }}</a>{% endfor %}
+</nav>
+
 <form method="post" action="/settings" id="settings-form">
   <input type="hidden" name="_csrf" value="{{ csrf }}">
   {% for section_key, section_name, icon in sections %}

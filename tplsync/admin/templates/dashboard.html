@@ -1,17 +1,21 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m with context %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
 <header class="page-header">
   <div>
     <h1 class="page-title">Dashboard</h1>
-    <p class="page-subtitle">
-      {% if start_date %}Processing Syncore POs created since {{ localtime(start_date) }}.{% else %}Not live yet.{% endif %}
-      Times shown in {{ tz_name }}.
-    </p>
+    <ul class="status-strip">
+      <li><i class="fa-solid fa-flag-checkered"></i> {% if start_date %}Live since {{ localtime(start_date) }}{% else %}Not live yet{% endif %}</li>
+      <li><i class="fa-solid fa-clock-rotate-left"></i> Last run
+        {% if last_run %}<a href="/logs/runs/{{ last_run.id }}">{{ localtime(last_run.started_at) }}</a>{% else %}never{% endif %}</li>
+      <li><i class="fa-solid fa-database"></i> Last backup {{ localtime(last_backup) or 'never' }}</li>
+      <li class="muted"><i class="fa-solid fa-globe"></i> {{ tz_name }}</li>
+    </ul>
   </div>
   <form method="post" action="/run-now">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
-    <button class="btn btn-primary" {{ 'disabled' if not start_date }}><i class="fa-solid fa-play"></i> Run now</button>
+    <button class="btn btn-primary" {{ 'disabled' if not start_date }} title="Check Syncore for new POs now instead of waiting for the next 5-minute run"><i class="fa-solid fa-play"></i> Run now</button>
   </form>
 </header>
 
@@ -19,7 +23,7 @@
 <div class="notice notice-warning"><i class="fa-solid fa-circle-pause"></i><span>Processing is <strong>paused</strong>. Scheduled runs won't do anything. <a href="/settings#behaviour">Change in Settings</a></span></div>
 {% endif %}
 {% if dry_run %}
-<div class="notice notice-info"><i class="fa-solid fa-flask"></i><span><strong>Dry run</strong> is on. Nothing is created in 3PL Central, Syncore isn't updated and no emails are sent. <a href="/settings#behaviour">Change in Settings</a></span></div>
+<div class="notice notice-info"><i class="fa-solid fa-flask"></i><span><strong>Dry run</strong> is on. Nothing is created in 3PL Central and no emails are sent. <a href="/settings#behaviour">Change in Settings</a></span></div>
 {% endif %}
 {% if last_error %}
 <div class="notice notice-error"><i class="fa-solid fa-circle-exclamation"></i><span>The last run failed: {{ last_error }} {% if last_run %}<a href="/logs/runs/{{ last_run.id }}">View log</a>{% endif %}</span></div>
@@ -45,80 +49,56 @@
 </section>
 {% endif %}
 
-<div class="stats-grid">
-  <a class="stat {{ 'is-selected' if state == 'done' }}" href="/?state=done">
-    <span class="stat-label">Completed</span><span class="stat-value">{{ counts.completed }}</span>
+<div class="stats-grid stats-grid-4">
+  <a class="stat stat-success {{ 'is-selected' if state == 'done' }}" href="/?state=done">
+    <span class="stat-label"><i class="fa-solid fa-circle-check"></i> Completed</span><span class="stat-value">{{ counts.completed or 0 }}</span>
   </a>
   <a class="stat stat-warning {{ 'is-selected' if state == 'open_short' }}" href="/?state=open_short">
-    <span class="stat-label">Open: short stock</span><span class="stat-value">{{ counts.open_short }}</span>
+    <span class="stat-label"><i class="fa-solid fa-box-open"></i> Open: short stock</span><span class="stat-value">{{ counts.open_short or 0 }}</span>
   </a>
   <a class="stat stat-error {{ 'is-selected' if state == 'problems' }}" href="/?state=problems">
-    <span class="stat-label">Problems</span><span class="stat-value">{{ counts.problems }}</span>
+    <span class="stat-label"><i class="fa-solid fa-triangle-exclamation"></i> Problems</span><span class="stat-value">{{ counts.problems or 0 }}</span>
   </a>
-  <a class="stat {{ 'is-selected' if state == 'waiting' }}" href="/?state=waiting">
-    <span class="stat-label">Waiting</span><span class="stat-value">{{ counts.pending }}</span>
+  <a class="stat stat-info {{ 'is-selected' if state == 'waiting' }}" href="/?state=waiting">
+    <span class="stat-label"><i class="fa-solid fa-hourglass-half"></i> Waiting or on hold</span><span class="stat-value">{{ counts.pending or 0 }}</span>
   </a>
-  <a class="stat stat-muted" href="{{ '/logs/runs/' ~ last_run.id if last_run else '/logs' }}">
-    <span class="stat-label">Last scheduled run</span>
-    <span class="stat-meta">{{ localtime(last_run.started_at) if last_run else 'Never' }}</span>
-  </a>
-  <div class="stat stat-muted">
-    <span class="stat-label">Last backup</span>
-    <span class="stat-meta">{{ localtime(last_backup) or 'Never' }}</span>
-  </div>
 </div>
 
 <section class="card">
   <div class="card-header">
-    <h2 class="card-title">Purchase orders</h2>
-    <nav class="segmented" aria-label="Filter">
-      {% for key, label in [('', 'Active'), ('done', 'Done'), ('open_short', 'Open'), ('problems', 'Problems'), ('skipped', 'Skipped'), ('dismissed', 'Dismissed')] %}
-      <a href="/?state={{ key }}" class="{{ 'active' if state == key }}">{{ label }}</a>
-      {% endfor %}
-    </nav>
+    <h2 class="card-title"><i class="fa-solid fa-file-invoice"></i> Purchase orders</h2>
+    <div class="card-tools">
+      <form method="get" action="/" class="search-form" role="search">
+        {% if state %}<input type="hidden" name="state" value="{{ state }}">{% endif %}
+        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+        <input class="input input-sm" type="search" name="q" value="{{ q }}" placeholder="Search reference, job or client" aria-label="Search purchase orders">
+      </form>
+      <nav class="segmented" aria-label="Filter">
+        {% for key, label in [('', 'Active'), ('done', 'Done'), ('open_short', 'Open'), ('problems', 'Problems'), ('skipped', 'Skipped'), ('dismissed', 'Dismissed')] %}
+        <a href="/?state={{ key }}" class="{{ 'active' if state == key and not q }}">{{ label }}</a>
+        {% endfor %}
+      </nav>
+    </div>
   </div>
+  {% if q %}
+  <p class="card-note">{{ rows | length }} result{{ '' if rows | length == 1 else 's' }} for “{{ q }}”{% if state %} in {{ state.replace('_', ' ') }}{% endif %}. <a href="/{{ '?state=' ~ state if state }}">Clear search</a></p>
+  {% endif %}
   {% if rows %}
   <div class="table-wrap">
-    <table class="table">
+    <table class="table table-stack">
       <thead>
-        <tr><th>Reference</th><th>Status</th><th>3PL transaction</th><th>Details</th><th>Updated</th><th></th></tr>
+        <tr><th>Reference</th><th>Client</th><th>Status</th><th>3PL order</th><th>Details</th><th>Updated</th><th><span class="sr-only">Actions</span></th></tr>
       </thead>
       <tbody>
         {% for r in rows %}
         <tr>
-          <td class="mono"><a href="/po/{{ r.po_id }}">{{ r.reference or ('Job ' ~ r.job_id) }}</a><div class="cell-meta">PO id {{ r.po_id }}</div></td>
-          <td>
-            {% if r.completion == 'open_short' %}
-            <span class="badge badge-warning">Open: short stock</span>
-            {% elif r.state == 'done' %}
-            <span class="badge badge-success">Completed</span>
-            {% elif r.state == 'failed' %}
-            <span class="badge badge-error">Failed</span>
-            {% elif r.state == 'dismissed' %}
-            <span class="badge badge-muted">Dismissed</span>
-            {% elif r.state == 'error' %}
-            <span class="badge badge-error-soft">Retrying ({{ r.attempts }})</span>
-            {% else %}
-            <span class="badge badge-muted">{{ state_labels.get(r.state, r.state) }}</span>
-            {% endif %}
-          </td>
-          <td class="mono">{{ r.order_id or '-' }}</td>
-          <td class="cell-detail">{{ r.last_error or r.skip_reason or '' }}</td>
-          <td class="nowrap">{{ localtime(r.updated_at) }}</td>
-          <td class="row-actions">
-            {% if r.state in ('failed', 'error', 'dismissed', 'skipped') %}
-            <form method="post" action="/po/{{ r.po_id }}/retry">
-              <input type="hidden" name="_csrf" value="{{ csrf }}">
-              <button class="btn btn-secondary btn-sm"><i class="fa-solid fa-rotate-right"></i> {{ {'dismissed': 'Restore', 'skipped': 'Process'}.get(r.state, 'Retry') }}</button>
-            </form>
-            {% endif %}
-            {% if r.state in ('failed', 'error', 'waiting', 'held') %}
-            <form method="post" action="/po/{{ r.po_id }}/dismiss" data-confirm="Dismiss {{ r.reference or ('PO ' ~ r.po_id) }}? It won't be sent to 3PL Central.">
-              <input type="hidden" name="_csrf" value="{{ csrf }}">
-              <button class="btn btn-danger-ghost btn-sm" title="Don't process this PO"><i class="fa-solid fa-ban"></i><span class="sr-only">Dismiss</span></button>
-            </form>
-            {% endif %}
-          </td>
+          <td data-label="Reference" class="nowrap"><a class="mono strong" href="/po/{{ r.po_id }}">{{ r.reference or ('Job ' ~ r.job_id) }}</a><div class="cell-meta">PO id {{ r.po_id }}</div></td>
+          <td data-label="Client" class="client-col">{{ r.client_display or '—' }}</td>
+          <td data-label="Status">{{ m.po_status(r) }}</td>
+          <td data-label="3PL order" class="mono">{{ r.order_id or '—' }}</td>
+          <td data-label="Details" class="cell-detail">{{ r.last_error or r.skip_reason or '' }}</td>
+          <td data-label="Updated" class="nowrap" title="{{ localtime(r.updated_at) }}">{{ localtime(r.updated_at, short=True) }}</td>
+          <td class="row-actions">{{ m.po_actions(r) }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -126,9 +106,9 @@
   </div>
   {% else %}
   <div class="empty-state">
-    <i class="fa-solid fa-inbox"></i>
-    <h3>Nothing here yet</h3>
-    <p>Purchase orders appear once a run picks them up.</p>
+    <i class="fa-solid {{ 'fa-magnifying-glass' if q else 'fa-inbox' }}"></i>
+    <h3>{{ 'No matching purchase orders' if q else ('Nothing here' if state else 'Nothing here yet') }}</h3>
+    <p>{{ 'Try a reference like 77215-1, a PO id, a job number or a client name.' if q else ('No purchase orders in this view.' if state else 'Purchase orders appear once a run picks them up.') }}</p>
   </div>
   {% endif %}
 </section>
@@ -136,11 +116,11 @@
 <section class="card">
   <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-vial"></i> Test a purchase order</h2></div>
   <div class="card-body">
-    <p class="muted">Preview the 3PL Central order for one Syncore PO. The preview doesn't change anything. The IDs appear in the PO's Syncore URL. You'll be taken to the run's live log.</p>
+    <p class="muted">See what one Syncore PO would turn into in 3PL Central. <strong>Preview only</strong> doesn't change anything. Both numbers are in the PO's Syncore URL, and you'll be taken to the run's live log.</p>
     <form method="post" action="/test-po" class="form-row">
       <input type="hidden" name="_csrf" value="{{ csrf }}">
-      <div class="field"><label for="job">Job number</label><input class="input" id="job" name="job" inputmode="numeric" pattern="[0-9]+" required></div>
-      <div class="field"><label for="po">PO id</label><input class="input" id="po" name="po" inputmode="numeric" pattern="[0-9]+" required></div>
+      <div class="field"><label for="job">Job number</label><input class="input" id="job" name="job" inputmode="numeric" pattern="[0-9]+" placeholder="77215" required></div>
+      <div class="field"><label for="po">PO id</label><input class="input" id="po" name="po" inputmode="numeric" pattern="[0-9]+" placeholder="122694" required></div>
       <div class="field">
         <label for="mode">Mode</label>
         <select class="input" id="mode" name="mode" data-live-warning>

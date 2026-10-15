@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Admin{% endblock %} · 3PL Order Sync</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/admin.css?v=10">
+  <link rel="stylesheet" href="/static/admin.css?v=11">
   <link rel="icon" href="data:,">
   {% block head %}{% endblock %}
 </head>
@@ -37,14 +37,15 @@
 
     <main id="main" class="content">
       {% if flash %}
-      <div class="notice notice-{{ flash.k }}" role="status">
+      <div class="notice notice-{{ flash.k }} notice-flash" role="status">
         <i class="fa-solid {{ {'success': 'fa-circle-check', 'error': 'fa-circle-exclamation', 'info': 'fa-circle-info'}[flash.k] | default('fa-circle-info') }}"></i>
         <span>{{ flash.m }}</span>
+        <button type="button" class="notice-close" data-dismiss-notice aria-label="Dismiss message"><i class="fa-solid fa-xmark"></i></button>
       </div>
       {% endif %}
       {% block content %}{% endblock %}
     </main>
   </div>
-  <script src="/static/admin.js?v=3"></script>
+  <script src="/static/admin.js?v=4"></script>
 </body>
 </html>

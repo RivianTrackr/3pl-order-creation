@@ -19,29 +19,29 @@
   <form method="get" action="/logs" class="filter-bar">
     <input type="hidden" name="tab" value="{{ tab }}">
     {% if tab == 'runs' %}
-      <select class="input" name="kind" aria-label="Run type">
+      <select class="input" name="kind" aria-label="Run type" data-autosubmit>
         <option value="">All types</option>
         {% for k, label in [('scheduled', 'Scheduled'), ('manual', 'Run now'), ('test', 'PO test'), ('clients', 'Client matching')] %}
         <option value="{{ k }}" {{ 'selected' if kind == k }}>{{ label }}</option>
         {% endfor %}
       </select>
-      <select class="input" name="status" aria-label="Status">
+      <select class="input" name="status" aria-label="Status" data-autosubmit>
         <option value="">Any status</option>
         {% for k, label in [('ok', 'OK'), ('failed', 'Failed'), ('running', 'Running'), ('interrupted', 'Interrupted')] %}
         <option value="{{ k }}" {{ 'selected' if status == k }}>{{ label }}</option>
         {% endfor %}
       </select>
-      <label class="checkbox"><input type="checkbox" name="show_quiet" value="true" {{ 'checked' if show_quiet }}> Include scheduled runs with nothing to do</label>
+      <label class="checkbox"><input type="checkbox" name="show_quiet" value="true" {{ 'checked' if show_quiet }} data-autosubmit> Include scheduled runs with nothing to do</label>
     {% elif tab == 'events' %}
       <input class="input" type="search" name="q" value="{{ q }}" placeholder="Reference, PO id, job # or text" aria-label="Search">
-      <select class="input" name="level" aria-label="Level">
+      <select class="input" name="level" aria-label="Level" data-autosubmit>
         <option value="">All levels</option>
         {% for k, label in [('error', 'Errors'), ('warning', 'Warnings'), ('info', 'Info')] %}
         <option value="{{ k }}" {{ 'selected' if level == k }}>{{ label }}</option>
         {% endfor %}
       </select>
     {% else %}
-      <select class="input" name="status" aria-label="Status">
+      <select class="input" name="status" aria-label="Status" data-autosubmit>
         <option value="">Any status</option>
         {% for k, label in [('sent', 'Sent'), ('failed', 'Failed'), ('dry_run', 'Dry run')] %}
         <option value="{{ k }}" {{ 'selected' if status == k }}>{{ label }}</option>
@@ -59,21 +59,21 @@
   </div>
   {% elif tab == 'runs' %}
   <div class="table-wrap">
-    <table class="table">
+    <table class="table table-stack">
       <thead><tr><th>Run</th><th>Started</th><th>Type</th><th>Status</th><th>Result</th><th>Duration</th></tr></thead>
       <tbody>
         {% for r in rows %}
-        <tr class="row-link">
-          <td class="mono"><a href="/logs/runs/{{ r.id }}">#{{ r.id }}</a></td>
-          <td class="nowrap">{{ localtime(r.started_at) }}</td>
-          <td class="nowrap">
+        <tr class="row-link" data-href="/logs/runs/{{ r.id }}">
+          <td class="mono" data-label="Run"><a href="/logs/runs/{{ r.id }}">#{{ r.id }}</a></td>
+          <td class="nowrap" data-label="Started" title="{{ localtime(r.started_at) }}">{{ localtime(r.started_at, short=True) }}</td>
+          <td class="nowrap" data-label="Type">
             {{ m.run_kind(r.kind) }}{% if r.dry_run %} <span class="badge badge-muted">Dry run</span>{% endif %}
             {% if r.target %}<div class="cell-meta">{{ r.target }}</div>{% endif %}
             {% if r.triggered_by %}<div class="cell-meta">by {{ r.triggered_by }}</div>{% endif %}
           </td>
-          <td>{{ m.run_status(r.status, r.summary_obj) }}</td>
-          <td class="cell-detail">{% if r.error %}<span class="text-error">{{ r.error }}</span>{% else %}{{ m.summary(r.summary_obj) }}{% endif %}</td>
-          <td class="nowrap">{{ r.duration }}</td>
+          <td data-label="Status">{{ m.run_status(r.status, r.summary_obj) }}</td>
+          <td class="cell-detail" data-label="Result">{% if r.error %}<span class="text-error">{{ r.error }}</span>{% else %}{{ m.summary(r.summary_obj) }}{% endif %}</td>
+          <td class="nowrap" data-label="Duration">{{ r.duration }}</td>
         </tr>
         {% endfor %}
       </tbody>
