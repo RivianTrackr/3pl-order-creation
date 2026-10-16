@@ -61,6 +61,8 @@ SETTINGS: Tuple[SettingDef, ...] = (
     SettingDef("SENDGRID_API_KEY", "SendGrid API key", "alerts", "secret", required=True),
     SettingDef("EMAIL_FROM", "From address", "alerts", "email", required=True,
                help="Must be a verified sender in SendGrid."),
+    SettingDef("ADMIN_URL", "Admin address", "alerts",
+               help="This admin's web address, e.g. https://3pl.ipromo.com. Emails link to it."),
     SettingDef("ALERT_EMAIL_TO", "Alert recipients", "alerts", required=True,
                help="Who gets alerts about orders that need attention. Comma-separated."),
 

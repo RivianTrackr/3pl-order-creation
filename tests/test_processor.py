@@ -116,8 +116,9 @@ class FakeNotifier:
         self.sent = []
         self.recorder = None
 
-    def send(self, subject, lines, po_id=None):
+    def send(self, subject, lines, po_id=None, html_body=None):
         self.sent.append((subject, lines))
+        self.html = html_body
 
 
 @pytest.fixture

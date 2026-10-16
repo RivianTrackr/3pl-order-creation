@@ -422,6 +422,11 @@ def create_app(boot: Bootstrap) -> FastAPI:
                     except re.error:
                         errors.append("SKU pattern is not a valid regular expression.")
                         continue
+                if d.key == "ADMIN_URL" and value:
+                    if not re.fullmatch(r"https?://[^\s/]+(/[^\s]*)?", value):
+                        errors.append("Admin address must start with https:// (e.g. https://3pl.ipromo.com).")
+                        continue
+                    value = value.rstrip("/")
                 if d.key == "DISPLAY_TIMEZONE" and value:
                     try:
                         ZoneInfo(value)

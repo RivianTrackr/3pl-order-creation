@@ -7,8 +7,9 @@ from pathlib import Path
 from typing import List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from . import summary
 from .config import Settings
-from .db import Database, client_missing, client_status, utcnow
+from .db import Database, utcnow
 from .notify import Notifier
 
 log = logging.getLogger(__name__)
@@ -31,53 +32,16 @@ def summary_due(db: Database, settings: Settings, now: datetime) -> bool:
 
 
 def build_summary(db: Database, settings: Settings, now: datetime) -> List[str]:
-    since = (now - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
-    counts = db.event_counts_since(since)
-    runs = db.runs_since(since)
-    failed_runs = [r for r in runs if r["status"] in ("failed", "interrupted")]
-    open_orders = db.open_short_orders()
-    held = db.recent(200, state="held")
-    problems = db.recent(50, state="problems")
-    waiting_clients = [r for r in db.list_clients() if client_status(r) != "ready" and r["last_po_at"]]
-
-    lines = [
-        f"3PL Order Sync summary for the 24 hours to {now.astimezone(_zone(settings.display_timezone)):%b %-d, %Y %-I:%M %p} "
-        f"({settings.display_timezone}).",
-        "",
-        f"Orders created: {counts.get('order.created', 0)}",
-        f"Orders completed: {counts.get('order.completed', 0)}",
-        f"Left open for stock: {counts.get('order.left_open', 0)}",
-        f"POs skipped (other vendors or no INV/OD SKUs): {counts.get('po.skipped', 0)}",
-        f"Runs: {len(runs)}" + (f", of which {len(failed_runs)} failed" if failed_runs else ""),
-    ]
-    if settings.paused:
-        lines += ["", "NOTE: processing is PAUSED in the admin settings."]
-    if settings.dry_run:
-        lines += ["", "NOTE: dry run is ON, so nothing is being sent to 3PL Central."]
-
-    if held:
-        lines += ["", f"On hold until their Syncore job is submitted ({len(held)}):"]
-        lines += [f"  {r['reference'] or r['po_id']}: {(r['skip_reason'] or '')[:120]}" for r in held[:25]]
-    if open_orders:
-        lines += ["", f"Waiting for stock ({len(open_orders)}):"]
-        lines += [f"  {r['reference'] or r['po_id']} - 3PL order {r['order_id']}" for r in open_orders[:25]]
-    if problems:
-        lines += ["", f"Needs attention ({len(problems)}):"]
-        lines += [f"  {r['reference'] or r['po_id']}: {(r['last_error'] or '')[:160]}" for r in problems[:25]]
-    if waiting_clients:
-        lines += ["", "Clients sending POs that aren't set up (their POs are skipped):"]
-        lines += [f"  {r['name']}: needs {', '.join(client_missing(r))}" for r in waiting_clients[:25]]
-    if not (open_orders or problems or waiting_clients):
-        lines += ["", "Nothing needs attention."]
-    return lines
+    """The summary as plain-text lines (the email's text part)."""
+    return summary.render_text(summary.collect(db, settings, now))
 
 
 def send_summary(db: Database, settings: Settings, notifier: Notifier, now: datetime) -> bool:
-    lines = build_summary(db, settings, now)
+    data = summary.collect(db, settings, now)
     recipients = settings.summary_email_to or settings.alert_email_to
     original, notifier.email_to = notifier.email_to, recipients
     try:
-        notifier.send(f"[3PL] Daily summary - {local_day(settings, now)}", lines)
+        notifier.send(summary.subject(data), summary.render_text(data), html_body=summary.render_html(data))
     except Exception:  # noqa: BLE001 - a failed summary must not fail the run
         log.exception("Could not send the daily summary")
         return False

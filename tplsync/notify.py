@@ -31,13 +31,15 @@ class Notifier:
             except Exception:  # noqa: BLE001
                 log.exception("Could not record email in the log")
 
-    def send(self, subject: str, lines: list, po_id: Optional[int] = None) -> None:
+    def send(self, subject: str, lines: list, po_id: Optional[int] = None, html_body: Optional[str] = None) -> None:
+        """Email the lines as plain text, with html_body (or the lines) as the HTML part."""
         text = "\n".join(lines)
         if self.dry_run:
             log.info("[dry-run] would email %s: %s\n%s", self.email_to, subject, text)
             self._record(subject, text, "dry_run", None, po_id)
             return
-        body_html = "<br>".join(html.escape(line) for line in lines)
+        body_html = html_body or ('<div style="font-family:sans-serif">'
+                                  + "<br>".join(html.escape(line) for line in lines) + "</div>")
         try:
             request(self.session, "SendGrid", "POST", "https://api.sendgrid.com/v3/mail/send",
                     headers={"Authorization": f"Bearer {self.api_key}"},
@@ -47,7 +49,7 @@ class Notifier:
                         "subject": subject,
                         "content": [
                             {"type": "text/plain", "value": text},
-                            {"type": "text/html", "value": f"<div style=\"font-family:sans-serif\">{body_html}</div>"},
+                            {"type": "text/html", "value": body_html},
                         ],
                     })
         except Exception as exc:

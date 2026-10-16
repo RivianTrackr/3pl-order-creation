@@ -24,7 +24,7 @@ For each PO created after go-live:
    - If any line is short, the order is left **Open**, and an alert email lists the short SKUs. Every later run re-checks it and completes it once stock arrives (switch off with "Complete open orders when stock arrives").
 7. **Records the Transaction Number** (the 3PL Central order id) against the PO here: on the dashboard, in the PO's timeline and in any alert about it. Nothing is written back to Syncore.
 
-Once a day (after the hour set in Settings) a **summary email** goes out: orders created and completed, anything waiting for stock, anything needing attention, and clients still to be set up. The same run makes a **backup** of the database, kept for 14 days by default.
+Once a day (after the hour set in Settings) a **summary email** goes out: orders created and completed, anything needing attention, anything waiting for stock, and POs on hold until their job is submitted. Only active clients are listed; POs for clients that aren't set up or are paused are counted in one line instead. With **Settings → Alerts → Admin address** set, each reference links to its PO page. The same run makes a **backup** of the database, kept for 14 days by default.
 
 Any error sends one alert email per distinct problem and is retried on the next run. After 20 failed attempts it stops retrying; use **Retry** on the dashboard once the cause is fixed. Each step is recorded, so a retry resumes where it stopped.
 
