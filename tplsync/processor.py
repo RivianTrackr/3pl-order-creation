@@ -276,6 +276,11 @@ class Processor:
         if rec is not None and rec["state"] in ("done", "failed", "dismissed") and not force:
             return
 
+        if not force and rec is not None and rec["state"] == "held" and rec["last_modified"] == last_modified \
+                and self._still_held(job_id):
+            self.stats["held"] += 1       # unchanged PO, job still not submitted: nothing else to fetch
+            return
+
         if not force and not self.s.dry_run and not self._settled(rec, po_id, job_id, last_modified, now):
             return
 
@@ -298,6 +303,12 @@ class Processor:
                        f"Skipped: {exc.args[0]}", exc.args[2] if len(exc.args) > 2 else None)
         except Exception as exc:  # noqa: BLE001 - every failure is recorded and alerted
             self._record_error(po_id, job_id, exc)
+
+    def _still_held(self, job_id: int) -> bool:
+        """Whether a held PO's job is still in a status that waits. One cheap job lookup instead of
+        re-reading the whole PO; anything else (submitted, done) goes through the full check."""
+        status = str(self.syncore.get_job(job_id).get("status") or "").casefold()
+        return status not in self.s.job_statuses and status not in self.s.ignore_job_statuses
 
     def _settled(self, rec, po_id: int, job_id: int, last_modified: Optional[str], now: datetime) -> bool:
         in_progress = rec is not None and rec["state"] in ("processing", "error")

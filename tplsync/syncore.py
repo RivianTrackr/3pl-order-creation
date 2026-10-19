@@ -14,6 +14,7 @@ class SyncoreClient:
         self.session = requests.Session()
         self.session.headers.update({"x-api-key": api_key, "Accept": "application/json"})
         self._job_po_cache: Dict[int, List[dict]] = {}
+        self._job_cache: Dict[int, dict] = {}   # one fetch per job per run
 
     def _get(self, path: str, params: Optional[dict] = None) -> dict:
         resp = request(self.session, "Syncore", "GET", f"{self.base_url}{path}", params=params)
@@ -59,7 +60,9 @@ class SyncoreClient:
         return [g for g in data if g.get("id") and g.get("name")]
 
     def get_job(self, job_id: int) -> dict:
-        return self._get(f"/jobs/{job_id}")
+        if job_id not in self._job_cache:
+            self._job_cache[job_id] = self._get(f"/jobs/{job_id}")
+        return self._job_cache[job_id]
 
     def get_job_purchase_orders(self, job_id: int) -> List[dict]:
         if job_id not in self._job_po_cache:

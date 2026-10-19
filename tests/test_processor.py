@@ -345,11 +345,12 @@ def test_po_waits_until_its_job_is_submitted(env):
     syncore.job_status = "Pending"
     proc.run(NOW)
     db.upsert(900, 12345, first_seen=(NOW - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%S"))
-    calls = []
-    real_get_job = syncore.get_job
+    calls, po_reads = [], []
+    real_get_job, real_get_po = syncore.get_job, syncore.get_purchase_order
     syncore.get_job = lambda job_id: calls.append(job_id) or real_get_job(job_id)
+    syncore.get_purchase_order = lambda *a, **kw: po_reads.append(a) or real_get_po(*a, **kw)
     proc.run(NOW)   # still Pending: checked again, but no new timeline entry and nothing sent
-    assert calls == [12345]
+    assert calls == [12345] and po_reads == []        # only the job is looked at, not the whole PO
     assert tpl.created == [] and notifier.sent == []
     row = db.get(900)
     assert row["state"] == "held" and "Pending" in row["skip_reason"]
