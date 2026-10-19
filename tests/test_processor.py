@@ -106,6 +106,11 @@ class FakeTpl:
     def get_carriers(self):
         return CARRIER_LIST
 
+    shipments: dict = {}
+
+    def shipment(self, order_id):
+        return self.shipments.get(order_id, {"status": "open", "tracking": None, "carrier": None, "shipped_at": None})
+
     def list_customers(self, facility_id=None):
         return [(CLIENT.customer_id, CLIENT.name)]
 
@@ -556,3 +561,27 @@ def test_po_sent_before_snapshots_takes_a_quiet_baseline(env):
     _edit(po, 5)
     proc.run(NOW)
     assert notifier.sent == [] and json.loads(db.get(900)["sent_snapshot"])["lines"] == {"SHIRT-INV": 12.0}
+
+
+def test_tracking_number_is_picked_up_when_the_warehouse_ships(env):
+    proc, db, syncore, tpl, notifier = env([make_po()])
+    proc.run(NOW)                                        # order 5000 created; not shipped yet
+    assert db.get(900)["order_status"] is None and db.get(900)["ship_checked_at"]
+
+    tpl.shipments = {5000: {"status": "shipped", "tracking": "1Z0WY6070307889570", "carrier": "UPS",
+                            "shipped_at": "2026-09-17T15:00:00"}}
+    proc.run(NOW)                                        # checked less than an hour ago: not asked again yet
+    assert db.get(900)["order_status"] is None
+
+    proc.run(NOW + timedelta(hours=2))
+    row = db.get(900)
+    assert (row["order_status"], row["tracking_number"], row["ship_carrier"]) == ("shipped", "1Z0WY6070307889570", "UPS")
+    assert any(e["event"] == "order.shipped" for e in db.list_events(po_id=900))
+
+
+def test_order_cancelled_in_3pl_central_is_recorded(env):
+    proc, db, syncore, tpl, notifier = env([make_po()])
+    proc.run(NOW)
+    tpl.shipments = {5000: {"status": "cancelled", "tracking": None, "carrier": "UPS", "shipped_at": None}}
+    proc.run(NOW + timedelta(hours=2))
+    assert db.get(900)["order_status"] == "cancelled"

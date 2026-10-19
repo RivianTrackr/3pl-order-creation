@@ -53,6 +53,7 @@ class Summary:
     admin_url: str = ""
     run_errors: List[Tuple[str, int]] = field(default_factory=list)   # (error, times), most common first
     changed: List[Item] = field(default_factory=list)    # sent POs edited in Syncore since, not yet reviewed
+    shipped: int = 0
 
     @property
     def attention(self) -> int:
@@ -96,6 +97,7 @@ def collect(db: Database, settings: Settings, now: datetime) -> Summary:
         local_now=now.astimezone(tz), tz_name=settings.display_timezone,
         created=counts.get("order.created", 0), completed=counts.get("order.completed", 0),
         left_open=counts.get("order.left_open", 0), skipped=counts.get("po.skipped", 0),
+        shipped=counts.get("order.shipped", 0),
         runs=len(runs), failed_runs=len(failed), run_errors=errors.most_common(5),
         problems=[_item(r, (r["last_error"] or "")[:220]) for r in problems if tested(r) is not False],
         problems_not_tested=sum(1 for r in problems if tested(r) is False),
@@ -139,7 +141,8 @@ def render_text(s: Summary) -> List[str]:
         lines.append("Dry run is ON, so nothing is being sent to 3PL Central.")
     lines += [
         "",
-        f"Orders created: {s.created}    Completed: {s.completed}    Left open for stock: {s.left_open}",
+        f"Orders created: {s.created}    Completed: {s.completed}    Shipped: {s.shipped}    "
+        f"Left open for stock: {s.left_open}",
     ]
 
     def section(title: str, items: List[Item], more: str = "") -> None:
@@ -185,7 +188,7 @@ def render_html(s: Summary) -> str:
         notes.append(f"Scheduled runs are failing: {s.failed_runs} of {s.runs} in the last 24 hours.")
     head = [
         E.banner(tone, _headline(s), notes),
-        E.tiles([("Created", s.created, "#111827"), ("Completed", s.completed, "#15803d"),
+        E.tiles([("Created", s.created, "#111827"), ("Shipped", s.shipped, "#15803d"),
                  ("Left open", s.left_open, "#b45309"),
                  ("Attention", len(s.problems), "#b91c1c" if s.problems else "#111827")]),
     ]

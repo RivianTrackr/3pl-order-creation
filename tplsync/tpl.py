@@ -174,6 +174,18 @@ class TplCentralClient:
                           params={"detail": "OrderItems", "itemdetail": "Allocations"})
         return resp.json(), resp.headers.get("ETag", "")
 
+    def shipment(self, order_id: int) -> dict:
+        """{'status': 'open'|'shipped'|'cancelled', 'tracking': str|None, 'carrier': str|None, 'shipped_at': str|None}.
+        3PL Central order status: 0 open, 1 closed (shipped), 2 cancelled."""
+        order = self._call("GET", f"/orders/{order_id}", params={"detail": "All"}).json()
+        ro = order.get("readOnly") or {}
+        routing = order.get("routingInfo") or {}
+        numbers = [routing.get("trackingNumber")] + [p.get("trackingNumber") for p in ro.get("packages") or []]
+        tracking = ", ".join(dict.fromkeys(n.strip() for n in numbers if n and str(n).strip())) or None
+        status = {1: "shipped", 2: "cancelled"}.get(ro.get("status"), "open")
+        return {"status": status, "tracking": tracking, "carrier": routing.get("carrier"),
+                "shipped_at": ro.get("processDate") if status == "shipped" else None}
+
     def complete_order(self, order_id: int) -> None:
         _, etag = self.get_order(order_id)
         self._call("POST", f"/orders/{order_id}/completer", headers={"If-Match": etag})

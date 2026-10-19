@@ -414,3 +414,14 @@ def test_changed_after_send_shows_and_can_be_marked_reviewed(client, boot):
     client.post("/po/601/reviewed", data={"_csrf": csrf(client, "/po/601")})
     assert db.get(601)["changed_at"] is None and db.get(601)["change_signature"] == "x"
     assert "77900-1" not in client.get("/?state=changed").text
+
+
+def test_shipped_po_shows_a_tracking_link(client, boot):
+    login(client)
+    db = Database(boot.db_path)
+    db.upsert(602, 77901, state="done", reference="77901-1", order_id=202001, completion="completed",
+              order_status="shipped", tracking_number="1Z0WY6070307889570", ship_carrier="UPS",
+              shipped_at="2026-10-19T15:00:00")
+    page = client.get("/").text
+    assert "Shipped" in page and 'href="https://www.ups.com/track?tracknum=1Z0WY6070307889570"' in page
+    assert "1Z0WY6070307889570" in client.get("/po/602").text

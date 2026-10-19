@@ -35,6 +35,30 @@ from .auth import (FLASH_COOKIE, SESSION_COOKIE, SESSION_MAX_AGE, LoginThrottle,
 
 HERE = Path(__file__).resolve().parent
 PUBLIC_PATHS = ("/login", "/static/", "/healthz")
+TRACKING_URLS = {
+    "ups": "https://www.ups.com/track?tracknum={}",
+    "fedex": "https://www.fedex.com/fedextrack/?trknbr={}",
+    "usps": "https://tools.usps.com/go/TrackConfirmAction?tLabels={}",
+    "dhl": "https://www.dhl.com/us-en/home/tracking/tracking-express.html?tracking-id={}",
+}
+
+
+def calendar_date(value: Optional[str]) -> str:
+    """'2026-09-28T08:59:26' -> 'Sep 28, 2026'. For dates from 3PL Central, which carry no time zone."""
+    try:
+        return datetime.fromisoformat(str(value)[:19]).strftime("%b %-d, %Y") if value else ""
+    except ValueError:
+        return str(value)
+
+
+def tracking_links(carrier: Optional[str], numbers: Optional[str]) -> list:
+    """[(number, url or None)] for a tracking-number field that may hold several, comma-separated."""
+    key = next((k for k in TRACKING_URLS if k in (carrier or "").casefold().replace(" ", "")), None)
+    from urllib.parse import quote
+    return [(n, TRACKING_URLS[key].format(quote(n)) if key else None)
+            for n in (x.strip() for x in (numbers or "").split(",")) if n]
+
+
 STATE_LABELS = {
     "waiting": "Waiting", "held": "On hold", "processing": "Processing", "error": "Retrying", "failed": "Failed",
     "done": "Done", "skipped": "Skipped", "dismissed": "Dismissed",
@@ -98,6 +122,8 @@ def create_app(boot: Bootstrap) -> FastAPI:
             "localtime": localtime,
             "tz_name": getattr(tz, "key", "UTC"),
             "state_labels": STATE_LABELS,
+            "tracking_links": tracking_links,
+            "calendar_date": calendar_date,
             "vendor_name": values.get("SYNCORE_VENDOR_NAME") or "the configured vendor",
             "warehouse_name": values.get("TPL_FACILITY_NAME") or "the warehouse",
             "nav": template.split(".")[0].split("_")[0],

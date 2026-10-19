@@ -13,7 +13,9 @@
 
 {# One status badge for a PO, used on the dashboard and the PO page. #}
 {% macro po_status(r) -%}
-  {% if r.completion == 'open_short' %}<span class="badge badge-warning"><i class="fa-solid fa-box-open"></i> Open: short stock</span>
+  {% if r.order_status == 'shipped' %}<span class="badge badge-success"><i class="fa-solid fa-truck-fast"></i> Shipped</span>
+  {% elif r.order_status == 'cancelled' %}<span class="badge badge-error-soft"><i class="fa-solid fa-ban"></i> Cancelled in 3PL</span>
+  {% elif r.completion == 'open_short' %}<span class="badge badge-warning"><i class="fa-solid fa-box-open"></i> Open: short stock</span>
   {% elif r.state == 'done' %}<span class="badge badge-success"><i class="fa-solid fa-check"></i> Completed</span>
   {% elif r.state == 'failed' %}<span class="badge badge-error"><i class="fa-solid fa-circle-xmark"></i> Failed</span>
   {% elif r.state == 'error' %}<span class="badge badge-error-soft"><i class="fa-solid fa-rotate"></i> Retrying ({{ r.attempts }})</span>
@@ -23,6 +25,13 @@
   {% elif r.state == 'dismissed' %}<span class="badge badge-muted"><i class="fa-solid fa-ban"></i> Dismissed</span>
   {% else %}<span class="badge badge-muted">{{ state_labels.get(r.state, r.state) }}</span>{% endif %}
   {% if r.changed_at %}<span class="badge badge-warning" title="Changed in Syncore after it was sent"><i class="fa-solid fa-pen"></i> Changed in Syncore</span>{% endif %}
+{%- endmacro %}
+
+{# Tracking number(s) as carrier links. #}
+{% macro tracking(r) -%}
+  {% for number, url in tracking_links(r.ship_carrier, r.tracking_number) %}
+  <div class="cell-meta"><i class="fa-solid fa-truck-fast"></i> {% if url %}<a href="{{ url }}" target="_blank" rel="noopener">{{ number }}</a>{% else %}{{ number }}{% endif %}</div>
+  {% endfor %}
 {%- endmacro %}
 
 {# Retry / Process / Restore and Dismiss for a PO. #}
@@ -75,6 +84,8 @@
   'po.held': ('muted', 'fa-pause'),
   'order.left_open': ('warning', 'fa-box-open'),
   'order.found_existing': ('warning', 'fa-clone'),
+  'order.shipped': ('success', 'fa-truck-fast'),
+  'order.cancelled': ('warning', 'fa-ban'),
   'po.changed_after_send': ('warning', 'fa-pen'),
 } %}
 

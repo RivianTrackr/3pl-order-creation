@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     changed_at     TEXT,            -- set when the PO changed in Syncore after it was sent (cleared when reviewed)
     change_summary TEXT,
     change_signature TEXT,
+    order_status   TEXT,            -- shipped | cancelled, from 3PL Central
+    tracking_number TEXT,
+    ship_carrier   TEXT,
+    shipped_at     TEXT,
+    ship_checked_at TEXT,
     updated_at     TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS allowed_skus (       -- client SKUs sent even without INV/OD in them
@@ -195,7 +200,8 @@ class Database:
         self.conn.executescript(SCHEMA)
         self._add_column("purchase_orders", "job_submitted_at", "TEXT")
         self._add_column("purchase_orders", "client_name", "TEXT")
-        for column in ("sent_snapshot", "changed_at", "change_summary", "change_signature"):
+        for column in ("sent_snapshot", "changed_at", "change_summary", "change_signature", "order_status",
+                       "tracking_number", "ship_carrier", "shipped_at", "ship_checked_at"):
             self._add_column("purchase_orders", column, "TEXT")
 
     def _add_column(self, table: str, column: str, kind: str) -> None:
@@ -298,6 +304,13 @@ class Database:
         """POs with a 3PL order, sent since the given time (for the daily check that they still exist)."""
         return self.conn.execute("SELECT * FROM purchase_orders WHERE order_id IS NOT NULL AND state = 'done' "
                                  "AND first_seen >= ? ORDER BY job_id", (since,)).fetchall()
+
+    def awaiting_shipment(self, sent_since: str, checked_before: str, limit: int = 40) -> List[sqlite3.Row]:
+        """Sent POs whose 3PL order hasn't shipped or been cancelled yet, least recently checked first."""
+        return self.conn.execute(
+            "SELECT * FROM purchase_orders WHERE state = 'done' AND order_id IS NOT NULL AND order_status IS NULL "
+            "AND first_seen >= ? AND (ship_checked_at IS NULL OR ship_checked_at < ?) "
+            "ORDER BY ship_checked_at IS NOT NULL, ship_checked_at LIMIT ?", (sent_since, checked_before, limit)).fetchall()
 
     def po_view(self, po_id: int) -> Optional[sqlite3.Row]:
         """One PO with its client's name (from the Clients page where linked)."""

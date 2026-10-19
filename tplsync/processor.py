@@ -212,6 +212,7 @@ class Processor:
         if self.s.auto_complete_open:
             self.complete_open_orders()
         self.check_sent_pos_exist_if_due(now)
+        self.check_shipments(now)
 
         # Resume anything still in flight that fell out of the search window.
         for row in self.db.active():
@@ -309,6 +310,43 @@ class Processor:
                        f"Skipped: {exc.args[0]}", exc.args[2] if len(exc.args) > 2 else None)
         except Exception as exc:  # noqa: BLE001 - every failure is recorded and alerted
             self._record_error(po_id, job_id, exc)
+
+    # --- shipments --------------------------------------------------------------
+
+    SHIP_CHECK_DAYS = 30
+    SHIP_CHECK_MINUTES = 60
+
+    def check_shipments(self, now: datetime) -> None:
+        """Pick up tracking numbers once the warehouse ships, checking each sent order about once an hour for
+        30 days. Never fails a run."""
+        since = (now - timedelta(days=self.SHIP_CHECK_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
+        before = (now - timedelta(minutes=self.SHIP_CHECK_MINUTES)).strftime("%Y-%m-%dT%H:%M:%S")
+        for rec in self.db.awaiting_shipment(since, before):
+            creds = self.s.clients.get(str(rec["client_id"] or ""))
+            if creds is None:
+                continue
+            ref = rec["reference"] or f"PO id {rec['po_id']}"
+            try:
+                info = self.tpl(creds).shipment(rec["order_id"])
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Could not check whether 3PL order %s shipped: %s", rec["order_id"], exc)
+                continue
+            if self.s.dry_run:
+                continue
+            fields = {"ship_checked_at": now.strftime("%Y-%m-%dT%H:%M:%S")}
+            if info["status"] == "shipped":
+                fields.update(order_status="shipped", tracking_number=info["tracking"], ship_carrier=info["carrier"],
+                              shipped_at=info["shipped_at"])
+                self.stats["shipped"] += 1
+                self.event(rec["po_id"], rec["job_id"], ref, "info", "order.shipped",
+                           f"3PL order {rec['order_id']} shipped"
+                           + (f" via {info['carrier']}, tracking {info['tracking']}" if info["tracking"] else ""),
+                           info)
+            elif info["status"] == "cancelled":
+                fields.update(order_status="cancelled")
+                self.event(rec["po_id"], rec["job_id"], ref, "warning", "order.cancelled",
+                           f"3PL order {rec['order_id']} was cancelled in 3PL Central", info)
+            self.db.upsert(rec["po_id"], rec["job_id"], **fields)
 
     # --- POs that change after they were sent -----------------------------------
 

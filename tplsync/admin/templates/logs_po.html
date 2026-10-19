@@ -26,6 +26,11 @@
 <section class="card">
   <dl class="facts">
     <div><dt>3PL order</dt><dd class="mono">{{ record.order_id or '—' }}</dd></div>
+    {% if record.order_status == 'shipped' %}
+    <div><dt>Shipped</dt><dd>{{ calendar_date(record.shipped_at) or 'Yes' }}{{ m.tracking(record) }}</dd></div>
+    {% elif record.order_status == 'cancelled' %}
+    <div><dt>In 3PL Central</dt><dd>Cancelled</dd></div>
+    {% endif %}
     <div><dt>Client</dt><dd>{{ client_name or '—' }}</dd></div>
     <div><dt>Attempts</dt><dd>{{ record.attempts }}</dd></div>
     <div><dt>First seen</dt><dd>{{ localtime(record.first_seen) }}</dd></div>
