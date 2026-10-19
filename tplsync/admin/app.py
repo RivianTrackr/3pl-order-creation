@@ -294,6 +294,26 @@ def create_app(boot: Bootstrap) -> FastAPI:
         from_detail = urlparse(request.headers.get("referer", "")).path == f"/po/{po_id}"
         return redirect(f"/po/{po_id}" if from_detail else "/", f"PO {po_id} will be processed on the next run.")
 
+    @app.post("/po/{po_id}/notes", dependencies=[Depends(csrf_protect)])
+    def po_add_note(request: Request, po_id: int, text: str = Form(""), db: Database = Depends(get_db)):
+        text = text.strip()
+        if not text:
+            return redirect(f"/po/{po_id}#notes", "Write a note first.", "error")
+        db.add_note(po_id, username(request), text[:2000])
+        return redirect(f"/po/{po_id}#notes", "Note added.")
+
+    @app.post("/po/{po_id}/notes/{note_id}/delete", dependencies=[Depends(csrf_protect)])
+    def po_delete_note(request: Request, po_id: int, note_id: int, db: Database = Depends(get_db)):
+        note = db.get_note(note_id)
+        if not note or note["po_id"] != po_id:
+            raise HTTPException(404, "Note not found.")
+        me = request.state.user
+        if note["username"] != me["username"] and me.get("role") == "viewer":
+            raise HTTPException(403, "You can only delete your own notes.")
+        db.delete_note(note_id)
+        db.audit(username(request), "po.note_delete", f"{po_id}: {note['text'][:80]}")
+        return redirect(f"/po/{po_id}#notes", "Note deleted.")
+
     @app.post("/po/{po_id}/reviewed", dependencies=[Depends(csrf_protect)])
     def po_reviewed(request: Request, po_id: int, db: Database = Depends(get_db)):
         row = db.get(po_id)
@@ -423,6 +443,7 @@ def create_app(boot: Bootstrap) -> FastAPI:
             raise HTTPException(404, "No record of that purchase order.")
         client = db.po_view(po_id)
         return render(request, db, "logs_po.html", po_id=po_id, record=record, events=events, nav="dashboard",
+                      notes=db.notes(po_id),
                       client_name=client["client_display"] if client else None,
                       emails=db.list_emails(200, po_id=po_id),
                       reference=(record["reference"] if record else None)

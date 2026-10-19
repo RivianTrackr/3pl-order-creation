@@ -494,3 +494,18 @@ def test_admin_can_add_a_view_only_user_and_switch_access(client, boot):
     assert viewer["role"] == "viewer"
     client.post(f"/users/{viewer['id']}/role", data={"_csrf": token, "role": "admin"})
     assert db.get_user(viewer["id"])["role"] == "admin"
+
+
+def test_notes_on_a_po(client, boot):
+    db = Database(boot.db_path)
+    db.create_user("ps-team", hash_password(PASSWORD), "viewer")
+    db.upsert(901, 78000, state="error", reference="78000-1", last_error="boom", attempts=1)
+    client.post("/login", data={"username": "ps-team", "password": PASSWORD})   # view-only users can add notes
+    token = re.search(r'name="_csrf" value="([^"]+)"', client.get("/po/901").text).group(1)
+    client.post("/po/901/notes", data={"_csrf": token, "text": "Called the warehouse, shipping Monday"})
+    page = client.get("/po/901").text
+    assert "Called the warehouse, shipping Monday" in page and "ps-team" in page
+    assert 'href="/po/901#notes"' in client.get("/").text                        # note count on the dashboard
+    note = db.notes(901)[0]
+    client.post(f"/po/901/notes/{note['id']}/delete", data={"_csrf": token})
+    assert db.notes(901) == []

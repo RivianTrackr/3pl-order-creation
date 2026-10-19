@@ -38,6 +38,14 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     ship_checked_at TEXT,
     updated_at     TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS po_notes (           -- the team's comments on a PO
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    po_id     INTEGER NOT NULL,
+    at        TEXT NOT NULL,
+    username  TEXT NOT NULL,
+    text      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS po_notes_po ON po_notes(po_id);
 CREATE TABLE IF NOT EXISTS allowed_skus (       -- client SKUs sent even without INV/OD in them
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     client_pk   INTEGER NOT NULL,
@@ -295,7 +303,8 @@ class Database:
             params.append(state)
         elif not include_skipped:
             where.append("p.state NOT IN ('skipped', 'dismissed')")
-        sql = ("SELECT p.*, COALESCE(c.name, p.client_name) AS client_display FROM purchase_orders p "
+        sql = ("SELECT p.*, COALESCE(c.name, p.client_name) AS client_display, "
+               "(SELECT COUNT(*) FROM po_notes n WHERE n.po_id = p.po_id) AS note_count FROM purchase_orders p "
                "LEFT JOIN clients c ON c.syncore_group_id = p.client_id")
         if where:
             sql += " WHERE " + " AND ".join(where)
@@ -347,6 +356,21 @@ class Database:
             if skus:
                 result.append({"row": row, "skus": skus})
         return result
+
+    def notes(self, po_id: int) -> List[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM po_notes WHERE po_id = ? ORDER BY id", (po_id,)).fetchall()
+
+    def add_note(self, po_id: int, username: str, text: str) -> None:
+        with self.conn:
+            self.conn.execute("INSERT INTO po_notes(po_id, at, username, text) VALUES(?, ?, ?, ?)",
+                              (po_id, utcnow(), username, text))
+
+    def get_note(self, note_id: int) -> Optional[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM po_notes WHERE id = ?", (note_id,)).fetchone()
+
+    def delete_note(self, note_id: int) -> None:
+        with self.conn:
+            self.conn.execute("DELETE FROM po_notes WHERE id = ?", (note_id,))
 
     def po_view(self, po_id: int) -> Optional[sqlite3.Row]:
         """One PO with its client's name (from the Clients page where linked)."""

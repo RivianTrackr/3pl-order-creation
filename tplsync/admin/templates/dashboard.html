@@ -94,7 +94,7 @@
       <tbody>
         {% for r in rows %}
         <tr>
-          <td data-label="Reference" class="nowrap"><a class="mono strong" href="/po/{{ r.po_id }}">{{ r.reference or ('Job ' ~ r.job_id) }}</a><div class="cell-meta">PO id {{ r.po_id }}</div></td>
+          <td data-label="Reference" class="nowrap"><a class="mono strong" href="/po/{{ r.po_id }}">{{ r.reference or ('Job ' ~ r.job_id) }}</a><div class="cell-meta">PO id {{ r.po_id }}{% if r.note_count %} · <a href="/po/{{ r.po_id }}#notes" title="{{ r.note_count }} note{{ '' if r.note_count == 1 else 's' }}"><i class="fa-solid fa-comment"></i> {{ r.note_count }}</a>{% endif %}</div></td>
           <td data-label="Client" class="client-col">{{ r.client_display or '—' }}</td>
           <td data-label="Status">{{ m.po_status(r) }}</td>
           <td data-label="3PL order"><span class="mono">{{ r.order_id or '—' }}</span>{{ m.tracking(r) }}</td>

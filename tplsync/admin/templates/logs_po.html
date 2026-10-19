@@ -50,6 +50,33 @@
 </section>
 {% endif %}
 
+<section class="card" id="notes">
+  <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-comment"></i> Notes</h2><span class="muted small">{{ notes | length }}</span></div>
+  {% if notes %}
+  <ul class="note-list">
+    {% for n in notes %}
+    <li>
+      <div class="note-head"><strong>{{ n.username }}</strong> <span class="cell-meta">{{ localtime(n.at) }}</span>
+        {% if n.username == user.username or can_edit %}
+        <form method="post" action="/po/{{ po_id }}/notes/{{ n.id }}/delete" data-confirm="Delete this note?">
+          <input type="hidden" name="_csrf" value="{{ csrf }}">
+          <button class="btn btn-danger-ghost btn-sm" title="Delete note"><i class="fa-solid fa-trash"></i><span class="sr-only">Delete note</span></button>
+        </form>
+        {% endif %}
+      </div>
+      <p class="note-text">{{ n.text }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <form method="post" action="/po/{{ po_id }}/notes" class="card-body {{ 'card-body-divided' if notes }} note-form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label class="sr-only" for="note-text">Add a note</label>
+    <textarea class="input" id="note-text" name="text" rows="2" maxlength="2000" placeholder="Add a note for the team, e.g. “Called the warehouse, shipping Monday”" required></textarea>
+    <button class="btn btn-secondary"><i class="fa-solid fa-paper-plane"></i> Add note</button>
+  </form>
+</section>
+
 <section class="card">
   <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-timeline"></i> Timeline</h2><span class="muted small">oldest first</span></div>
   {% if events %}
