@@ -94,7 +94,8 @@ def chart_geometry(bars: List[dict], y_max: int, width: int = 720, height: int =
                 f"H{x + bar_w - r:.1f} Q{x + bar_w:.1f},{y:.1f} {x + bar_w:.1f},{y + r:.1f} V{top + plot_h:.1f} Z"
                 if h else "")
         columns.append({**b, "path": path, "hit_x": left + i * band, "hit_w": band, "cx": x + bar_w / 2,
-                        "show_label": i % 7 == 0 or i == len(bars) - 1})
+                        # a date every week, plus the last day; skip a weekly label that would crowd the last
+                        "show_label": i == len(bars) - 1 or (i % 7 == 0 and len(bars) - 1 - i >= 4)})
     ticks = [{"value": v, "y": top + plot_h - plot_h * v / y_max} for v in sorted({0, y_max // 2, y_max})]
     return {"width": width, "height": height, "left": left, "right": width - right, "top": top,
             "baseline": top + plot_h, "plot_h": plot_h, "columns": columns, "ticks": ticks, "label_y": height - 6}

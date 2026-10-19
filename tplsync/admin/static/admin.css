@@ -610,3 +610,5 @@ tr.row-link[data-href] { cursor: pointer; }
 .change-list { list-style: none; margin: 0; padding: 6px 20px 12px; }
 .change-list li { padding: 6px 0; border-bottom: 1px solid var(--border); }
 .change-list li:last-child { border-bottom: 0; }
+.facts .fact-wide { grid-column: span 2; }
+@media (max-width: 640px) { .facts .fact-wide { grid-column: auto; } }
