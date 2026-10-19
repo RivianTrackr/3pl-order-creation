@@ -123,3 +123,31 @@ document.querySelectorAll("input[data-filter-rows]").forEach(function (input) {
     update();
   });
 })();
+
+// Column chart tooltips: each day's column (its full-height hit area) shows the date and count.
+document.querySelectorAll("[data-chart]").forEach(function (figure) {
+  var tip = figure.querySelector(".chart-tip");
+  var value = tip.querySelector("[data-tip-value]");
+  var label = tip.querySelector("[data-tip-label]");
+  function show(target) {
+    var n = Number(target.dataset.count);
+    value.textContent = n + (n === 1 ? " order" : " orders");
+    label.textContent = target.dataset.label;
+    tip.hidden = false;
+    var box = figure.getBoundingClientRect(), r = target.getBoundingClientRect();
+    var x = r.left + r.width / 2 - box.left;
+    tip.style.left = Math.min(Math.max(x, 60), box.width - 60) + "px";
+    figure.querySelectorAll(".bar-hit.is-active").forEach(function (el) { el.classList.remove("is-active"); });
+    target.classList.add("is-active");
+  }
+  function hide() {
+    tip.hidden = true;
+    figure.querySelectorAll(".bar-hit.is-active").forEach(function (el) { el.classList.remove("is-active"); });
+  }
+  figure.querySelectorAll(".bar-hit").forEach(function (hit) {
+    hit.addEventListener("pointerenter", function () { show(hit); });
+    hit.addEventListener("focus", function () { show(hit); });
+    hit.addEventListener("blur", hide);
+  });
+  figure.addEventListener("pointerleave", hide);
+});

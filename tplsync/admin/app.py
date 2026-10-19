@@ -24,7 +24,7 @@ from .. import maintenance
 from ..config import (ROOT, Bootstrap, ConfigError, TplClient, any_ready_client, load_settings,
                       missing_required, setting_values, shipping_overrides, status_list)
 from ..db import Database, client_missing, client_status, company_key, utcnow
-from .. import emails
+from .. import emails, stats
 from ..http import ApiError
 from ..skulist import SheetError, read_sheet
 from ..notify import Notifier
@@ -271,7 +271,9 @@ def create_app(boot: Bootstrap) -> FastAPI:
             ("At least one client ready", any(client_status(r) == "ready" for r in db.list_clients()), "/clients"),
             ("Go-live date set", bool(db.get_meta("start_date")), None),
         ]
-        return render(request, db, "dashboard.html",
+        trend = stats.trends(db, _zone(values.get("DISPLAY_TIMEZONE")))
+        return render(request, db, "dashboard.html", trend=trend,
+                      chart=stats.chart_geometry(trend["bars"], trend["y_max"]),
                       rows=db.recent(100, state=state or None,
                                      include_skipped=state in ("skipped", "dismissed", "changed"),
                                      q=q[:60]),

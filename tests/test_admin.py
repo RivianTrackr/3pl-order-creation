@@ -524,3 +524,9 @@ def test_bulk_retry_and_dismiss(client, boot):
     assert db.get(1001)["state"] == "dismissed" and db.get(1003)["state"] == "dismissed" and db.get(1004)["state"] == "done"
     client.post("/po/bulk", data={"_csrf": token, "action": "retry", "po_ids": ["1001", "1002"]})
     assert db.get(1001)["state"] == "error" and db.get(1002)["state"] == "error" and db.get(1002)["attempts"] == 0
+
+
+def test_dashboard_shows_the_30_day_chart(client, boot):
+    login(client)
+    page = client.get("/").text
+    assert "Last 30 days" in page and 'class="bar-hit"' in page and "Show as table" in page

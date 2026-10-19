@@ -66,6 +66,46 @@
   </a>
 </div>
 
+<section class="card trend-card">
+  <div class="card-header">
+    <h2 class="card-title"><i class="fa-solid fa-chart-column"></i> Last 30 days</h2>
+    <span class="muted small">Orders sent to 3PL Central per day</span>
+  </div>
+  <div class="trend-body">
+    <dl class="trend-figures">
+      <div><dt>Orders sent</dt><dd>{{ "{:,}".format(trend.total) }}</dd></div>
+      <div><dt>Typical time from Submitted to sent</dt><dd>{{ trend.typical_wait }}</dd>
+        {% if trend.waits_measured %}<p class="cell-meta">median of {{ trend.waits_measured }} PO{{ '' if trend.waits_measured == 1 else 's' }}</p>{% endif %}</div>
+      <div><dt>Shipped</dt><dd>{{ "{:,}".format(trend.shipped) }}</dd></div>
+    </dl>
+    <figure class="trend-chart" data-chart>
+      <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-labelledby="trend-title" preserveAspectRatio="xMidYMid meet">
+        <title id="trend-title">Orders sent per day, last 30 days: {{ trend.total }} in total{% if trend.busiest %}, most on {{ trend.busiest.label }} ({{ trend.busiest.count }}){% endif %}</title>
+        {% for t in chart.ticks %}
+        <line x1="{{ chart.left }}" x2="{{ chart.right }}" y1="{{ t.y }}" y2="{{ t.y }}" class="{{ 'axis-base' if t.value == 0 else 'axis-grid' }}"/>
+        <text x="{{ chart.left - 8 }}" y="{{ t.y + 4 }}" text-anchor="end" class="axis-text">{{ t.value }}</text>
+        {% endfor %}
+        {% for c in chart.columns %}
+        {% if c.path %}<path d="{{ c.path }}" class="bar"/>{% endif %}
+        {% if c.show_label %}<text x="{{ c.cx }}" y="{{ chart.label_y }}" text-anchor="middle" class="axis-text">{{ c.label }}</text>{% endif %}
+        <rect x="{{ c.hit_x }}" y="{{ chart.top }}" width="{{ c.hit_w }}" height="{{ chart.plot_h }}" class="bar-hit" tabindex="0"
+              data-label="{{ c.label }}" data-count="{{ c.count }}" aria-label="{{ c.label }}: {{ c.count }} order{{ '' if c.count == 1 else 's' }} sent"/>
+        {% endfor %}
+      </svg>
+      <div class="chart-tip" role="status" hidden><strong data-tip-value></strong> <span data-tip-label></span></div>
+    </figure>
+  </div>
+  <details class="trend-table">
+    <summary>Show as table</summary>
+    <div class="table-wrap">
+      <table class="table table-compact">
+        <thead><tr><th>Day</th><th>Orders sent</th></tr></thead>
+        <tbody>{% for b in trend.bars | reverse %}<tr><td>{{ b.date.strftime('%a %b %-d') }}</td><td class="mono">{{ b.count }}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </details>
+</section>
+
 <section class="card">
   <div class="card-header">
     <h2 class="card-title"><i class="fa-solid fa-file-invoice"></i> Purchase orders</h2>
