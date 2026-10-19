@@ -67,11 +67,8 @@
             </div>
           </td>
           <td data-label="Setup">
-            <div class="setup-pills" aria-label="{{ 'Missing: ' ~ (c.missing | join(', ')) if c.missing else 'All details saved' }}">
-              {% for label, done in [('Syncore group', c.syncore_group_id), ('Customer ID', c.customer_id), ('Client ID', c.client_id), ('Secret', c.has_secret)] %}
-              <span class="pill {{ 'pill-done' if done else 'pill-missing' }}"><i class="fa-solid {{ 'fa-check' if done else 'fa-minus' }}"></i> {{ label }}</span>
-              {% endfor %}
-            </div>
+            {% if c.missing %}<span class="setup-missing"><i class="fa-solid fa-circle-exclamation"></i> Needs {{ c.missing | join(', ') }}</span>
+            {% else %}<span class="setup-ok"><i class="fa-solid fa-circle-check"></i> Complete</span>{% endif %}
           </td>
           <td data-label="Status">
             {% if c.status == 'ready' %}<span class="badge badge-success"><i class="fa-solid fa-check"></i> Active</span>

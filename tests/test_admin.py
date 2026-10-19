@@ -149,7 +149,7 @@ def test_clients_can_be_listed_before_setup_and_show_whats_missing(client, boot)
     assert sorted(r["name"] for r in db.list_clients()) == ["Example Book Company", "Northwind Tools"]
 
     page = client.get("/clients").text
-    assert "Needs info" in page and "Missing: Syncore client group, 3PL Customer ID, Client ID, Client Secret" in page
+    assert "Needs info" in page and "Needs Syncore client group, 3PL Customer ID, Client ID, Client Secret" in page
 
     # 3PL Central sync fills in customer ids by name and adds new customers
     assert db.sync_tpl_customers([(500, "Example Book Company"), (70, "Vertex Labs")]) == \
@@ -298,7 +298,7 @@ def test_dismissed_po_is_hidden_and_never_processed(client, boot):
     client.post("/po/501/dismiss", data={"_csrf": token})
     assert db.get(501)["state"] == "dismissed"
     page = client.get("/").text
-    assert "7002-1" in page and "7001-1" not in page
+    assert "7001-1" not in page and "7002-1" in client.get("/?state=all").text
     assert "7001-1" in client.get("/?state=dismissed").text
     client.post("/po/501/retry", data={"_csrf": token})          # Restore
     assert db.get(501)["state"] == "error"
@@ -424,8 +424,9 @@ def test_shipped_po_shows_a_tracking_link(client, boot):
     db.upsert(602, 77901, state="done", reference="77901-1", order_id=202001, completion="completed",
               order_status="shipped", tracking_number="1Z0WY6070307889570", ship_carrier="UPS",
               shipped_at="2026-10-19T15:00:00")
-    page = client.get("/").text
+    page = client.get("/?state=done").text                      # finished orders live under Done
     assert "Shipped" in page and 'href="https://www.ups.com/track?tracknum=1Z0WY6070307889570"' in page
+    assert "77901-1" not in client.get("/").text                 # Active is only what's in progress
     assert "1Z0WY6070307889570" in client.get("/po/602").text
 
 
@@ -672,8 +673,9 @@ def test_without_email_set_up_a_password_is_required(client, boot):
     login(client)
     resp = client.post("/users/create", data={"_csrf": csrf(client, "/users"), "new_username": "maria",
                                               "new_email": "maria@example.com"})
-    assert "invite couldn" in resp.text and "Email isn" in resp.text
-    assert "Email isn't set up yet" in client.get("/users").text or "Email isn&#39;t set up yet" in client.get("/users").text
+    assert "set a password for them" in resp.text and Database(boot.db_path).get_user_by_name("maria") is None
+    form = client.get("/users/new").text
+    assert "Email isn" in form and 'name="new_password"' in form
 
 
 def test_tokens_are_masked_in_logs():
@@ -691,3 +693,34 @@ def test_details_show_the_current_message_not_a_stale_one(client, boot):
     held = client.get("/?state=held").text
     assert "job 77750 is WIP" in held and "is paused on the Clients page" not in held
     assert "job 77681 is WIP" not in client.get("/?state=done").text
+
+
+def test_users_pages(client, boot):
+    login(client)
+    db = Database(boot.db_path)
+    db.create_user("maria", hash_password(PASSWORD), "viewer")
+    maria = db.get_user_by_name("maria")
+    page = client.get("/users").text
+    assert "maria" in page and "View only" in page and f'href="/users/{maria["id"]}"' in page and "Add user" in page
+    assert "Add user" in client.get("/users/new").text
+    token = csrf(client, f"/users/{maria['id']}")
+    client.post(f"/users/{maria['id']}/save", data={"_csrf": token, "email": "maria@example.com", "role": "admin"})
+    row = db.get_user(maria["id"])
+    assert row["email"] == "maria@example.com" and row["role"] == "admin"
+    client.post("/account/email", data={"_csrf": csrf(client, "/account"), "email": "me@example.com"})
+    assert db.get_user_by_name("admin")["email"] == "me@example.com"
+
+
+def test_active_shows_only_what_is_in_progress(client, boot):
+    login(client)
+    db = Database(boot.db_path)
+    for po_id, fields in ((1301, {"state": "error"}), (1302, {"state": "done", "completion": "completed"}),
+                          (1303, {"state": "done", "completion": "open_short"}),
+                          (1304, {"state": "done", "completion": "completed", "changed_at": "2026-10-19T10:00:00"}),
+                          (1305, {"state": "held"}), (1306, {"state": "waiting"})):
+        db.upsert(po_id, 80000 + po_id, reference=f"{po_id}-1", **fields)
+    active = client.get("/").text
+    assert all(f"{n}-1" in active for n in (1301, 1303, 1304, 1306))
+    assert "1302-1" not in active and "1305-1" not in active
+    everything = client.get("/?state=all").text
+    assert all(f"{n}-1" in everything for n in range(1301, 1307))

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Your account{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1 class="page-title">Your account</h1>
+    <p class="page-subtitle">Signed in as <strong>{{ me.username }}</strong> · {{ 'View only' if me.role == 'viewer' else 'Admin' }}{% if me.role == 'viewer' %}. Ask an admin if you need to change something.{% endif %}</p>
+  </div>
+</header>
+
+<div class="form-narrow">
+  <section class="card">
+    <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-envelope"></i> Email</h2></div>
+    <form method="post" action="/account/email" class="card-body inline-field">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <div class="field">
+        <label for="email">Your email</label>
+        <input class="input" type="email" id="email" name="email" value="{{ me.email or '' }}" placeholder="name@ipromo.com" autocomplete="email">
+        <p class="field-description">Used if you forget your password.</p>
+      </div>
+      <button class="btn btn-secondary">Save</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-key"></i> Change your password</h2></div>
+    <form method="post" action="/account/password" class="card-body stack">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="text" name="username" value="{{ me.username }}" autocomplete="username" hidden>
+      <div class="field"><label for="current_password">Current password</label><input class="input" type="password" id="current_password" name="current_password" autocomplete="current-password" required></div>
+      <div class="form-grid">
+        <div class="field"><label for="np">New password</label><input class="input" type="password" id="np" name="new_password" autocomplete="new-password" minlength="12" required></div>
+        <div class="field"><label for="confirm_password">Repeat it</label><input class="input" type="password" id="confirm_password" name="confirm_password" autocomplete="new-password" minlength="12" required></div>
+      </div>
+      <p class="field-description">At least 12 characters. Changing it signs you out everywhere.</p>
+      <div><button class="btn btn-primary">Change password</button></div>
+    </form>
+  </section>
+</div>
+{% endblock %}

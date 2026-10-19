@@ -3,114 +3,60 @@
 {% block content %}
 <header class="page-header">
   <div>
-    <h1 class="page-title">{{ 'Users' if can_edit else 'Your account' }}</h1>
-    <p class="page-subtitle">{% if can_edit %}<strong>Admins</strong> can change everything. <strong>View only</strong> users see the dashboard, POs and logs and can add notes, but can't change settings, clients or orders.{% else %}You have view-only access. Ask an admin if you need to change something.{% endif %}</p>
+    <h1 class="page-title">Users</h1>
+    <p class="page-subtitle"><strong>Admins</strong> can change everything. <strong>View only</strong> users see the dashboard, POs and logs and can add notes.</p>
   </div>
+  <a class="btn btn-primary" href="/users/new"><i class="fa-solid fa-user-plus"></i> Add user</a>
 </header>
 
-<div class="{{ 'users-layout' if can_edit else 'narrow' }}">
-  {% if can_edit %}
-  <section class="card">
-    <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-users"></i> Users</h2></div>
+<section class="card">
+  <ul class="user-list">
+    {% for u in users %}
+    <li class="user-row">
+      <span class="avatar" aria-hidden="true">{{ u.username[:1] | upper }}</span>
+      <div class="user-main">
+        <div class="user-name">{{ u.username }}{% if u.id == user.id %} <span class="badge badge-muted">You</span>{% endif %}</div>
+        <div class="user-email">{{ u.email or 'No email yet' }}</div>
+      </div>
+      <div class="user-access">
+        {% if u.role == 'viewer' %}<span class="badge badge-muted"><i class="fa-solid fa-eye"></i> View only</span>
+        {% else %}<span class="badge badge-info"><i class="fa-solid fa-user-shield"></i> Admin</span>{% endif %}
+      </div>
+      <div class="user-status">
+        {% if u.status == 'active' %}<span class="dot dot-ok"></span> Signed in {{ localtime(u.last_login_at, short=True) }}
+        {% elif u.status == 'invited' %}<span class="dot dot-wait"></span> Invite sent · expires {{ localtime(u.invite_expires, short=True) }}
+        {% elif u.status == 'expired' %}<span class="dot dot-bad"></span> Invite expired
+        {% else %}<span class="dot"></span> Hasn't signed in yet{% endif %}
+      </div>
+      <div class="user-actions">
+        {% if u.status in ('invited', 'expired') and u.email and email_ready %}
+        <form method="post" action="/users/{{ u.id }}/send-link">
+          <input type="hidden" name="_csrf" value="{{ csrf }}">
+          <button class="btn btn-secondary btn-sm"><i class="fa-solid fa-paper-plane"></i> Resend invite</button>
+        </form>
+        {% endif %}
+        <a class="btn btn-secondary btn-sm" href="{{ '/account' if u.id == user.id else '/users/' ~ u.id }}"><i class="fa-solid fa-pen"></i> Edit</a>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="card">
+  <details class="card-details">
+    <summary class="card-header"><h2 class="card-title"><i class="fa-solid fa-clock-rotate-left"></i> Activity log</h2><span class="muted small">Last {{ audit | length }} changes · show</span></summary>
+    {% if audit %}
     <div class="table-wrap">
-      <table class="table">
-        <thead><tr><th>User</th><th>Access</th><th>Last sign-in</th><th></th></tr></thead>
+      <table class="table table-compact">
+        <thead><tr><th>When</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
         <tbody>
-          {% for u in users %}
-          <tr>
-            <td>
-              <div class="strong">{{ u.username }}{% if u.id == user.id %} <span class="badge badge-muted">You</span>{% endif %}</div>
-              <form method="post" action="/users/{{ u.id }}/email" class="email-edit">
-                <input type="hidden" name="_csrf" value="{{ csrf }}">
-                <input class="input input-sm" type="email" name="email" value="{{ u.email or '' }}" placeholder="Add email" aria-label="Email for {{ u.username }}">
-                <button class="btn btn-ghost btn-sm" title="Save email"><i class="fa-solid fa-check"></i><span class="sr-only">Save</span></button>
-              </form>
-              {% set inv = invites.get(u.id) %}
-              {% if not u.last_login_at and inv %}
-              <div class="cell-meta">{% if inv.expired %}<span class="text-error">Invite expired</span>{% else %}Invite sent · expires {{ localtime(inv.expires_at, short=True) }}{% endif %}</div>
-              {% endif %}
-            </td>
-            <td>
-              {% if u.id != user.id %}
-              <form method="post" action="/users/{{ u.id }}/role" class="inline-form no-margin">
-                <input type="hidden" name="_csrf" value="{{ csrf }}">
-                <select class="input input-sm" name="role" data-autosubmit aria-label="Access for {{ u.username }}">
-                  <option value="admin" {{ 'selected' if u.role != 'viewer' }}>Admin</option>
-                  <option value="viewer" {{ 'selected' if u.role == 'viewer' }}>View only</option>
-                </select>
-              </form>
-              {% else %}<span class="badge badge-muted">{{ 'View only' if u.role == 'viewer' else 'Admin' }}</span>{% endif %}
-            </td>
-            <td class="nowrap">{{ localtime(u.last_login_at) or 'Never' }}</td>
-            <td class="row-actions">
-              {% if u.email and email_ready %}
-              <form method="post" action="/users/{{ u.id }}/send-link" data-confirm="Email {{ u.username }} a {{ 'password reset link' if u.last_login_at else 'new invite' }}?">
-                <input type="hidden" name="_csrf" value="{{ csrf }}">
-                <button class="btn btn-secondary btn-sm" title="{{ 'Email a password reset link' if u.last_login_at else 'Email a new invite link' }}"><i class="fa-solid fa-paper-plane"></i> {{ 'Reset link' if u.last_login_at else 'Send invite' }}</button>
-              </form>
-              {% endif %}
-              {% if u.id != user.id %}
-              <form method="post" action="/users/{{ u.id }}/delete" data-confirm="Delete {{ u.username }}?">
-                <input type="hidden" name="_csrf" value="{{ csrf }}">
-                <button class="btn btn-danger-ghost btn-sm"><i class="fa-solid fa-trash"></i><span class="sr-only">Delete {{ u.username }}</span></button>
-              </form>
-              {% endif %}
-            </td>
-          </tr>
+          {% for a in audit %}
+          <tr><td class="nowrap">{{ localtime(a.at, short=True) }}</td><td>{{ a.username or '-' }}</td><td class="mono">{{ a.action }}</td><td class="cell-detail">{{ a.detail or '' }}</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-    <form method="post" action="/users/create" class="card-body card-body-divided">
-      <input type="hidden" name="_csrf" value="{{ csrf }}">
-      <h3 class="subhead">Add user</h3>
-      <div class="form-grid">
-        <div class="field"><label for="new_username">Username</label><input class="input" id="new_username" name="new_username" autocomplete="off" required></div>
-        <div class="field"><label for="new_email">Email</label><input class="input" type="email" id="new_email" name="new_email" autocomplete="off" placeholder="name@ipromo.com"></div>
-        <div class="field"><label for="role">Access</label>
-          <select class="input" id="role" name="role"><option value="admin">Admin</option><option value="viewer">View only</option></select></div>
-      </div>
-      <p class="field-description">{% if email_ready %}They'll get an email with a link to choose their own password (works once, for 48 hours).{% else %}Email isn't set up yet (Settings → Alerts), so set a password for them below.{% endif %}</p>
-      <details class="manual-password" {{ 'open' if not email_ready }}>
-        <summary>Or set a password for them now</summary>
-        <div class="field"><label for="new_password">Password</label><input class="input" type="password" id="new_password" name="new_password" autocomplete="new-password" minlength="12"></div>
-        <p class="field-description">At least 12 characters. If you set one, no invite is sent; share it with them yourself.</p>
-      </details>
-      <div class="form-actions"><button class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> {{ 'Add and invite' if email_ready else 'Add user' }}</button></div>
-    </form>
-  </section>
-  {% endif %}
-
-  <section class="card">
-    <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-key"></i> Change your password</h2></div>
-    <form method="post" action="/account/password" class="card-body stack">
-      <input type="hidden" name="_csrf" value="{{ csrf }}">
-      <div class="field"><label for="current_password">Current password</label><input class="input" type="password" id="current_password" name="current_password" autocomplete="current-password" required></div>
-      <div class="field"><label for="np">New password</label><input class="input" type="password" id="np" name="new_password" autocomplete="new-password" minlength="12" required></div>
-      <div class="field"><label for="confirm_password">Repeat new password</label><input class="input" type="password" id="confirm_password" name="confirm_password" autocomplete="new-password" minlength="12" required></div>
-      <p class="field-description">At least 12 characters. Changing it signs you out everywhere.</p>
-      <div><button class="btn btn-secondary">Change password</button></div>
-    </form>
-  </section>
-</div>
-
-{% if can_edit %}
-<section class="card">
-  <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-clock-rotate-left"></i> Activity log</h2></div>
-  {% if audit %}
-  <div class="table-wrap">
-    <table class="table table-compact">
-      <thead><tr><th>When</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
-      <tbody>
-        {% for a in audit %}
-        <tr><td class="nowrap">{{ localtime(a.at) }}</td><td>{{ a.username or '-' }}</td><td class="mono">{{ a.action }}</td><td>{{ a.detail or '' }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <div class="empty-state"><p>No activity yet.</p></div>
-  {% endif %}
+    {% else %}<div class="empty-state"><p>No activity yet.</p></div>{% endif %}
+  </details>
 </section>
-{% endif %}
 {% endblock %}

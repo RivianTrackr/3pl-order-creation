@@ -624,3 +624,37 @@ tr.row-link[data-href] { cursor: pointer; }
 .users-layout > .card { margin-bottom: 0; }
 .users-layout > .card:last-child { max-width: 560px; }
 .users-layout + .card { margin-top: 20px; }
+
+/* Users */
+.user-list { list-style: none; margin: 0; padding: 0; }
+.user-row { display: grid; grid-template-columns: 40px minmax(180px, 1.4fr) 130px minmax(200px, 1fr) 240px; gap: 14px; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.user-row:last-child { border-bottom: 0; }
+.avatar { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--primary-tint); color: var(--primary); font-weight: 700; }
+.user-name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.user-email { font-size: 13px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.user-status { font-size: 13px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; }
+.user-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.user-actions form { margin: 0; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); flex: none; }
+.dot-ok { background: var(--success); }
+.dot-wait { background: #d97706; }
+.dot-bad { background: var(--error); }
+.form-narrow { max-width: 760px; }
+.action-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.action-row form { margin: 0; flex-shrink: 0; }
+.inline-field { display: flex; gap: 10px; align-items: flex-start; }
+.inline-field .field { flex: 1; }
+.inline-field > .btn { margin-top: 26px; }
+.sidebar-user:hover { color: #fff; text-decoration: none; }
+@media (max-width: 760px) {
+  .user-row { grid-template-columns: 40px minmax(0, 1fr); }
+  .user-access, .user-status, .user-actions { grid-column: 2; justify-content: flex-start; }
+  .action-row, .inline-field { flex-direction: column; align-items: stretch; }
+  .inline-field > .btn { margin-top: 0; }
+}
+
+.tracking-line { white-space: nowrap; }
+.tracking-line i { margin-right: 4px; }
+.setup-missing { color: var(--warning); font-size: 13px; }
+.setup-ok { color: var(--success); font-size: 13px; }
+.setup-missing i, .setup-ok i { margin-right: 4px; }

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}{{ target.username if target else 'Add user' }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="breadcrumb"><a href="/users">Users</a> /</p>
+    <h1 class="page-title">{{ target.username if target else 'Add user' }}</h1>
+    {% if target %}<p class="page-subtitle">
+      {% if target.status == 'active' %}Last signed in {{ localtime(target.last_login_at) }}
+      {% elif target.status == 'invited' %}Invite sent, expires {{ localtime(target.invite_expires) }}
+      {% elif target.status == 'expired' %}Their invite expired before they used it
+      {% else %}Hasn't signed in yet{% endif %}</p>
+    {% else %}<p class="page-subtitle">{% if email_ready %}They'll get an email with a link to choose their own password.{% else %}Email isn't set up yet (Settings → Alerts), so set a password for them below and share it yourself.{% endif %}</p>{% endif %}
+  </div>
+</header>
+
+<form method="post" action="{{ '/users/' ~ target.id ~ '/save' if target else '/users/create' }}" class="form-narrow">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  <section class="card">
+    {% if not target %}
+    <div class="field-row">
+      <div class="field-row-label"><label for="new_username">Username <span class="required">*</span></label>
+        <p class="field-description">What they sign in with. Letters, numbers and . _ @ -</p></div>
+      <div class="field-row-control"><input class="input" id="new_username" name="new_username" autocomplete="off" required maxlength="60"></div>
+    </div>
+    {% endif %}
+    <div class="field-row">
+      <div class="field-row-label"><label for="email">Email</label>
+        <p class="field-description">{{ 'Where the invite goes. Also used for password resets.' if not target else 'Used for invites and password reset links.' }}</p></div>
+      <div class="field-row-control"><input class="input" type="email" id="email" name="{{ 'email' if target else 'new_email' }}" value="{{ target.email or '' if target else '' }}" placeholder="name@ipromo.com" autocomplete="off"></div>
+    </div>
+    <div class="field-row">
+      <div class="field-row-label"><label for="role">Access</label>
+        <p class="field-description"><strong>View only</strong>: dashboard, POs, logs and notes. <strong>Admin</strong>: everything.</p></div>
+      <div class="field-row-control">
+        {% if target and target.id == user.id %}<span class="badge badge-info">Admin</span><p class="field-description">You can't change your own access.</p>
+        {% else %}
+        <select class="input" id="role" name="role">
+          <option value="viewer" {{ 'selected' if not target or target.role == 'viewer' }}>View only</option>
+          <option value="admin" {{ 'selected' if target and target.role != 'viewer' }}>Admin</option>
+        </select>
+        {% endif %}
+      </div>
+    </div>
+    {% if not target %}
+    <div class="field-row">
+      <div class="field-row-label"><label for="new_password">Password</label>
+        <p class="field-description">{{ 'Optional. Leave blank to send an invite instead.' if email_ready else 'Required while email isn\'t set up. At least 12 characters.' }}</p></div>
+      <div class="field-row-control"><input class="input" type="password" id="new_password" name="new_password" autocomplete="new-password" minlength="12" {{ 'required' if not email_ready }}></div>
+    </div>
+    {% endif %}
+  </section>
+  <div class="sticky-actions">
+    <button type="submit" class="btn btn-primary"><i class="fa-solid {{ 'fa-floppy-disk' if target else 'fa-user-plus' }}"></i> {{ 'Save' if target else ('Add and invite' if email_ready else 'Add user') }}</button>
+    <a class="btn btn-ghost" href="/users">Cancel</a>
+    {% if target and target.id != user.id %}
+    <button class="btn btn-danger btn-push" form="delete-user"><i class="fa-solid fa-trash"></i> Delete user</button>
+    {% endif %}
+  </div>
+</form>
+
+{% if target and target.email and email_ready %}
+<section class="card form-narrow">
+  <div class="card-body action-row">
+    <div>
+      <div class="strong">{{ 'Send a password reset link' if target.status == 'active' else 'Send a new invite' }}</div>
+      <p class="field-description">Emails {{ target.email }} a link that works once ({{ '1 hour' if target.status == 'active' else '48 hours' }}).</p>
+    </div>
+    <form method="post" action="/users/{{ target.id }}/send-link">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <button class="btn btn-secondary"><i class="fa-solid fa-paper-plane"></i> {{ 'Send reset link' if target.status == 'active' else 'Send invite' }}</button>
+    </form>
+  </div>
+</section>
+{% endif %}
+{% if target and target.id != user.id %}
+<form method="post" action="/users/{{ target.id }}/delete" id="delete-user" data-confirm="Delete {{ target.username }}? They won't be able to sign in."><input type="hidden" name="_csrf" value="{{ csrf }}"></form>
+{% endif %}
+{% endblock %}

@@ -19,8 +19,8 @@ def test_trends_count_orders_per_local_day_and_time_to_send(tmp_path):
     for po_id, at in ((1, "2026-10-19T14:20:00"), (2, "2026-10-18T12:00:00"), (3, "2026-10-19T04:00:00")):
         db.conn.execute("INSERT INTO events(at, po_id, level, event, message) VALUES(?, ?, 'info', 'order.created', 'x')",
                         (at, po_id))
-    db.conn.execute("INSERT INTO events(at, po_id, level, event, message) VALUES('2026-10-19T15:00:00', 1, 'info', "
-                    "'order.shipped', 'x')")
+    db.upsert(1, 10, order_status="shipped", shipped_at="2026-10-19T09:00:00")
+    db.upsert(9, 19, state="done", order_status="shipped", shipped_at="2026-08-01T09:00:00")   # outside the 30 days
     db.conn.commit()
     t = stats.trends(db, tz, NOW)
     by_day = {b["label"]: b["count"] for b in t["bars"]}

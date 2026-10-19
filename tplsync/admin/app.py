@@ -39,7 +39,7 @@ HERE = Path(__file__).resolve().parent
 PUBLIC_PATHS = ("/login", "/static/", "/healthz", "/set-password", "/forgot-password")
 INVITE_HOURS, RESET_HOURS = 48, 1
 # What a read-only (viewer) user may change: their own password and PO notes.
-VIEWER_POSTS = re.compile(r"^/(logout|account/password|po/\d+/notes(/\d+/delete)?)$")
+VIEWER_POSTS = re.compile(r"^/(logout|account/(password|email)|po/\d+/notes(/\d+/delete)?)$")
 VIEWER_BLOCKED_PAGES = ("/settings",)
 TRACKING_URLS = {
     "ups": "https://www.ups.com/track?tracknum={}",
@@ -370,7 +370,7 @@ def create_app(boot: Bootstrap) -> FastAPI:
     def dashboard(request: Request, state: Optional[str] = None, q: str = "", db: Database = Depends(get_db)):
         values = setting_values(db, box)
         if state not in (None, "", "done", "problems", "waiting", "held", "open_short", "skipped", "dismissed",
-                         "changed"):
+                         "changed", "all"):
             state = None
         checklist = [
             ("Settings complete", not missing_required(values), "/settings"),
@@ -381,7 +381,7 @@ def create_app(boot: Bootstrap) -> FastAPI:
         return render(request, db, "dashboard.html", trend=trend,
                       chart=stats.chart_geometry(trend["bars"], trend["y_max"]),
                       rows=db.recent(100, state=state or None,
-                                     include_skipped=state in ("skipped", "dismissed", "changed"),
+                                     include_skipped=state in ("skipped", "dismissed", "changed", "all"),
                                      q=q[:60]),
                       counts=db.counts(), state=state or "", q=q[:60], checklist=checklist,
                       setup_done=all(ok for _, ok, _ in checklist),
@@ -1139,31 +1139,98 @@ def create_app(boot: Bootstrap) -> FastAPI:
         db.audit(username(request), "skus.delete", f"{row['client_name']}: {row['sku']}")
         return redirect(f"/skus?client={client}" if client else "/skus", f"Removed {row['sku']} for {row['client_name']}.")
 
+    def _user_view(row, invites: dict) -> dict:
+        """A user plus their invite/sign-in status for the Users pages."""
+        u = dict(row)
+        inv = invites.get(row["id"])
+        if row["last_login_at"]:
+            u["status"] = "active"
+        elif inv and inv["expires_at"] > utcnow() and not inv["used_at"]:
+            u["status"], u["invite_expires"] = "invited", inv["expires_at"]
+        elif inv and not inv["used_at"]:
+            u["status"] = "expired"
+        else:
+            u["status"] = "never"          # set up with a password, hasn't signed in yet
+        return u
+
+    def _email_ready(db: Database) -> bool:
+        values = setting_values(db, box)
+        return bool(values.get("SENDGRID_API_KEY") and values.get("EMAIL_FROM"))
+
     @app.get("/users", response_class=HTMLResponse)
     def users_page(request: Request, db: Database = Depends(get_db)):
-        now = utcnow()
-        invites = {uid: {"expires_at": r["expires_at"], "expired": r["expires_at"] <= now or bool(r["used_at"])}
-                   for uid, r in db.invites().items()}
-        values = setting_values(db, box)
-        return render(request, db, "users.html", users=db.list_users(), audit=db.audit_entries(100), invites=invites,
-                      email_ready=bool(values.get("SENDGRID_API_KEY") and values.get("EMAIL_FROM")))
+        if request.state.user.get("role") == "viewer":
+            return RedirectResponse("/account", status_code=303)
+        invites = db.invites()
+        return render(request, db, "users.html", users=[_user_view(r, invites) for r in db.list_users()],
+                      audit=db.audit_entries(50), email_ready=_email_ready(db))
+
+    @app.get("/users/new", response_class=HTMLResponse)
+    def user_new(request: Request, db: Database = Depends(get_db)):
+        return render(request, db, "users_form.html", target=None, email_ready=_email_ready(db), nav="users")
+
+    @app.get("/users/{user_id}", response_class=HTMLResponse)
+    def user_edit(request: Request, user_id: int, db: Database = Depends(get_db)):
+        row = db.get_user(user_id)
+        if not row:
+            raise HTTPException(404, "User not found.")
+        return render(request, db, "users_form.html", target=_user_view(row, db.invites()),
+                      email_ready=_email_ready(db), nav="users")
+
+    @app.post("/users/{user_id}/save", dependencies=[Depends(csrf_protect)])
+    def user_save(request: Request, user_id: int, email: str = Form(""), role: str = Form(""),
+                  db: Database = Depends(get_db)):
+        target = db.get_user(user_id)
+        if not target:
+            raise HTTPException(404, "User not found.")
+        email = email.strip()
+        if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            return redirect(f"/users/{user_id}", "That email address doesn't look right.", "error")
+        other = db.get_user_by_email(email) if email else None
+        if other and other["id"] != user_id:
+            return redirect(f"/users/{user_id}", f"Another user already has {email}.", "error")
+        db.set_email(user_id, email or None)
+        if role in ("admin", "viewer") and target["id"] != request.state.user["id"]:
+            db.set_role(user_id, role)
+        db.audit(username(request), "user.save", f"{target['username']}: {email or '(no email)'}, {role or 'same access'}")
+        return redirect("/users", f"Saved {target['username']}.")
+
+    @app.get("/account", response_class=HTMLResponse)
+    def account_page(request: Request, db: Database = Depends(get_db)):
+        return render(request, db, "account.html", me=db.get_user(request.state.user["id"]), nav="users")
+
+    @app.post("/account/email", dependencies=[Depends(csrf_protect)])
+    def account_email(request: Request, email: str = Form(""), db: Database = Depends(get_db)):
+        me = request.state.user
+        email = email.strip()
+        if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            return redirect("/account", "That email address doesn't look right.", "error")
+        other = db.get_user_by_email(email) if email else None
+        if other and other["id"] != me["id"]:
+            return redirect("/account", "Another user already has that email.", "error")
+        db.set_email(me["id"], email or None)
+        db.audit(me["username"], "user.email", email or "(removed)")
+        return redirect("/account", "Email saved. It's used for password reset links.")
 
     @app.post("/users/create", dependencies=[Depends(csrf_protect)])
     def user_create(request: Request, db: Database = Depends(get_db), new_username: str = Form(...),
                     new_email: str = Form(""), new_password: str = Form(""), role: str = Form("admin")):
         new_username, new_email = new_username.strip(), new_email.strip()
         if not re.fullmatch(r"[A-Za-z0-9_.@-]{3,60}", new_username):
-            return redirect("/users", "Usernames are 3-60 letters, numbers or . _ @ -", "error")
+            return redirect("/users/new", "Usernames are 3-60 letters, numbers or . _ @ -", "error")
         if db.get_user_by_name(new_username):
-            return redirect("/users", f"{new_username} already exists.", "error")
+            return redirect("/users/new", f"{new_username} already exists.", "error")
         if new_email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", new_email):
-            return redirect("/users", "That email address doesn't look right.", "error")
+            return redirect("/users/new", "That email address doesn't look right.", "error")
         if new_email and db.get_user_by_email(new_email):
-            return redirect("/users", f"Another user already has {new_email}.", "error")
+            return redirect("/users/new", f"Another user already has {new_email}.", "error")
         if not new_password and not new_email:
-            return redirect("/users", "Enter their email to send an invite, or set a password for them.", "error")
+            return redirect("/users/new", "Enter their email to send an invite, or set a password for them.", "error")
+        if not new_password and not _email_ready(db):
+            return redirect("/users/new", "Email isn't set up yet (Settings > Alerts), so set a password for them.",
+                            "error")
         if new_password and password_problem(new_password):
-            return redirect("/users", password_problem(new_password), "error")
+            return redirect("/users/new", password_problem(new_password), "error")
         role = "viewer" if role == "viewer" else "admin"
         # Invited users get an unguessable placeholder password until they choose their own.
         db.create_user(new_username, hash_password(new_password or secrets.token_urlsafe(32)), role)
@@ -1241,12 +1308,12 @@ def create_app(boot: Bootstrap) -> FastAPI:
                         new_password: str = Form(...), confirm_password: str = Form(...)):
         me = db.get_user(request.state.user["id"])
         if not verify_login(current_password, me["password_hash"]):
-            return redirect("/users", "Current password is incorrect.", "error")
+            return redirect("/account", "Current password is incorrect.", "error")
         if new_password != confirm_password:
-            return redirect("/users", "New passwords don't match.", "error")
+            return redirect("/account", "New passwords don't match.", "error")
         problem = password_problem(new_password)
         if problem:
-            return redirect("/users", problem, "error")
+            return redirect("/account", problem, "error")
         db.set_password(me["id"], hash_password(new_password))
         db.audit(me["username"], "user.password")
         response = redirect("/login", "Password changed. Sign in again.")

@@ -30,7 +30,7 @@
 {# Tracking number(s) as carrier links. #}
 {% macro tracking(r) -%}
   {% for number, url in tracking_links(r.ship_carrier, r.tracking_number) %}
-  <div class="cell-meta"><i class="fa-solid fa-truck-fast"></i> {% if url %}<a href="{{ url }}" target="_blank" rel="noopener">{{ number }}</a>{% else %}{{ number }}{% endif %}</div>
+  <div class="cell-meta tracking-line"><i class="fa-solid fa-truck-fast"></i>{% if url %}<a href="{{ url }}" target="_blank" rel="noopener">{{ number }}</a>{% else %}{{ number }}{% endif %}</div>
   {% endfor %}
 {%- endmacro %}
 

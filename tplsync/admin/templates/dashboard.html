@@ -116,7 +116,7 @@
         <input class="input input-sm" type="search" name="q" value="{{ q }}" placeholder="Search reference, job or client" aria-label="Search purchase orders">
       </form>
       <nav class="segmented" aria-label="Filter">
-        {% for key, label in [('', 'Active'), ('held', 'On hold' ~ (' (' ~ counts.held ~ ')' if counts.held else '')), ('done', 'Done'), ('open_short', 'Open'), ('problems', 'Problems'), ('changed', 'Changed' ~ (' (' ~ counts.changed ~ ')' if counts.changed else '')), ('skipped', 'Skipped'), ('dismissed', 'Dismissed')] %}
+        {% for key, label in [('', 'Active'), ('held', 'On hold' ~ (' (' ~ counts.held ~ ')' if counts.held else '')), ('done', 'Done'), ('open_short', 'Open'), ('problems', 'Problems'), ('changed', 'Changed' ~ (' (' ~ counts.changed ~ ')' if counts.changed else '')), ('skipped', 'Skipped'), ('dismissed', 'Dismissed'), ('all', 'All')] %}
         <a href="/?state={{ key }}" class="{{ 'active' if state == key and not q }}">{{ label }}</a>
         {% endfor %}
       </nav>
@@ -160,9 +160,9 @@
   </div>
   {% else %}
   <div class="empty-state">
-    <i class="fa-solid {{ 'fa-magnifying-glass' if q else 'fa-inbox' }}"></i>
-    <h3>{{ 'No matching purchase orders' if q else ('Nothing here' if state else 'Nothing here yet') }}</h3>
-    <p>{{ 'Try a reference like 77215-1, a PO id, a job number or a client name.' if q else ('No purchase orders in this view.' if state else 'Purchase orders appear once a run picks them up.') }}</p>
+    <i class="fa-solid {{ 'fa-magnifying-glass' if q else ('fa-inbox' if state else 'fa-circle-check') }}"></i>
+    <h3>{{ 'No matching purchase orders' if q else ('Nothing here' if state else 'All caught up') }}</h3>
+    <p>{% if q %}Try a reference like 77215-1, a PO id, a job number or a client name.{% elif state %}No purchase orders in this view.{% else %}Nothing is waiting, retrying or needing a look. Finished orders are under <a href="/?state=done">Done</a>{% if counts.held %}, and {{ counts.held }} on <a href="/?state=held">hold</a>{% endif %}.{% endif %}</p>
   </div>
   {% endif %}
 </section>

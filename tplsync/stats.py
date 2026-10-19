@@ -68,6 +68,8 @@ def trends(db: Database, tz: ZoneInfo, now: Optional[datetime] = None, days: int
             if submitted and created_at[r["po_id"]] >= submitted:
                 waits.append((created_at[r["po_id"]] - submitted).total_seconds() / 60)
 
+    shipped = db.conn.execute("SELECT COUNT(*) FROM purchase_orders WHERE order_status = 'shipped' AND shipped_at >= ?",
+                              (start_day.isoformat(),)).fetchone()[0]
     total = sum(per_day.values())
     top = nice_max(max(per_day.values(), default=0))
     bars = [{"date": day, "label": day.strftime("%b %-d"), "count": count} for day, count in per_day.items()]

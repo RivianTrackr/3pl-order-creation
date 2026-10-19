@@ -48,7 +48,7 @@
         {% endfor %}
       </select>
     {% endif %}
-    <button class="btn btn-secondary"><i class="fa-solid fa-filter"></i> Filter</button>
+    {% if tab == 'events' %}<button class="btn btn-secondary"><i class="fa-solid fa-magnifying-glass"></i> Search</button>{% endif %}
   </form>
 
   {% if not rows %}

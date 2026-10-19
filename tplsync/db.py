@@ -310,11 +310,15 @@ class Database:
             where.append("p.changed_at IS NOT NULL")
         elif state == "waiting":
             where.append("p.state IN ('waiting', 'held', 'processing')")
+        elif state == "all":
+            pass
         elif state:
             where.append("p.state = ?")
             params.append(state)
         elif not include_skipped:
-            where.append("p.state NOT IN ('skipped', 'dismissed', 'held')")      # Active; on hold has its own filter
+            # Active: what's still in progress or needs a look. Finished orders are under Done, holds under On hold.
+            where.append("(p.state IN ('waiting', 'processing', 'error', 'failed') OR p.completion = 'open_short' "
+                         "OR p.changed_at IS NOT NULL) AND p.state NOT IN ('dismissed', 'held')")
         sql = ("SELECT p.*, COALESCE(c.name, p.client_name) AS client_display, "
                "(SELECT COUNT(*) FROM po_notes n WHERE n.po_id = p.po_id) AS note_count FROM purchase_orders p "
                "LEFT JOIN clients c ON c.syncore_group_id = p.client_id")

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Admin{% endblock %} · 3PL Order Sync</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/admin.css?v=14">
+  <link rel="stylesheet" href="/static/admin.css?v=15">
   <link rel="icon" href="data:,">
   {% block head %}{% endblock %}
 </head>
@@ -24,10 +24,10 @@
         <a href="/shipping" class="{{ 'active' if nav == 'shipping' }}"><i class="fa-solid fa-truck-fast"></i><span>Ship Via</span></a>
         <a href="/logs" class="{{ 'active' if nav == 'logs' }}"><i class="fa-solid fa-list-ul"></i><span>Logs</span></a>
         {% if can_edit %}<a href="/settings" class="{{ 'active' if nav == 'settings' }}"><i class="fa-solid fa-gear"></i><span>Settings</span></a>{% endif %}
-        <a href="/users" class="{{ 'active' if nav == 'users' }}"><i class="fa-solid fa-user-shield"></i><span>{{ 'Users' if can_edit else 'Account' }}</span></a>
+        <a href="{{ '/users' if can_edit else '/account' }}" class="{{ 'active' if nav == 'users' }}"><i class="fa-solid fa-user-shield"></i><span>{{ 'Users' if can_edit else 'Account' }}</span></a>
       </nav>
       <div class="sidebar-footer">
-        <span class="sidebar-user"><i class="fa-solid fa-circle-user"></i> {{ user.username }}{% if not can_edit %} · view only{% endif %}</span>
+        <a class="sidebar-user" href="/account" title="Your account"><i class="fa-solid fa-circle-user"></i> {{ user.username }}{% if not can_edit %} · view only{% endif %}</a>
         <form method="post" action="/logout">
           <input type="hidden" name="_csrf" value="{{ csrf }}">
           <button type="submit" class="btn btn-ghost btn-sm"><i class="fa-solid fa-right-from-bracket"></i> Sign out</button>
