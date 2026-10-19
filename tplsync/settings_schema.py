@@ -102,6 +102,10 @@ SETTINGS: Tuple[SettingDef, ...] = (
     SettingDef("BACKUP_KEEP_DAYS", "Keep database backups (days)", "behaviour", "int", default="14",
                help="A copy of the database is made once a day. 0 turns backups off."),
     SettingDef("DISPLAY_TIMEZONE", "Display time zone", "behaviour", default="America/New_York"),
+    SettingDef("HEARTBEAT_URL", "Uptime check URL", "behaviour",
+               help="Optional. A ping URL from healthchecks.io (free) or a similar service, called after every "
+                    "scheduled run. If the calls stop, e.g. the server is down, that service emails you. Set its "
+                    "period to 5 minutes and grace time to 30 minutes."),
     SettingDef("LOG_RETENTION_DAYS", "Keep logs (days)", "behaviour", "int", default="90",
                help="Run logs, PO timelines and the email log older than this are deleted. PO status is kept."),
 )

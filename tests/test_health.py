@@ -110,6 +110,20 @@ def test_a_real_run_that_syncore_rejects_triggers_the_alert(tmp_path, monkeypatc
     monkeypatch.setattr(cli.fcntl, "flock", lambda *a: None)   # each real run is its own process
     monkeypatch.setattr(Notifier, "send", lambda self, subject, lines, po_id=None, html_body=None:
                         sent.append(subject))
+    pings = []
+    monkeypatch.setattr(cli.health, "ping", lambda url: pings.append(url))
+    db.set_setting("HEARTBEAT_URL", "https://hc-ping.com/abc", "test")
     for _ in range(3):
         assert cli.main(["run"]) == 1
     assert sent == ["[3PL] Runs are failing: Syncore is rejecting the API key"]
+    assert pings == ["https://hc-ping.com/abc"] * 3          # the uptime check hears from every run
+
+
+def test_ping_never_raises(monkeypatch):
+    import requests
+
+    def boom(*a, **kw):
+        raise requests.ConnectionError("offline")
+    monkeypatch.setattr(requests, "get", boom)
+    health.ping("https://hc-ping.com/abc")      # no exception
+    health.ping(None)

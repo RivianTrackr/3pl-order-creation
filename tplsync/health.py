@@ -20,6 +20,17 @@ STREAK = 3          # consecutive failed scheduled runs before alerting
 FAILED = ("failed", "interrupted")
 
 
+def ping(url: Optional[str]) -> None:
+    """Tell the outside uptime check that a scheduled run happened. Never raises."""
+    if not url:
+        return
+    try:
+        import requests
+        requests.get(url, timeout=10)
+    except Exception:  # noqa: BLE001 - a missed ping only means the check may email, which is the point
+        log.warning("Could not reach the uptime check URL")
+
+
 def explain(error: str) -> Tuple[str, str]:
     """(headline, what to do) for a run error, in plain words."""
     text = error or ""

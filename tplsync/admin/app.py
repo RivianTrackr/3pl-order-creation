@@ -423,6 +423,9 @@ def create_app(boot: Bootstrap) -> FastAPI:
                     except re.error:
                         errors.append("SKU pattern is not a valid regular expression.")
                         continue
+                if d.key == "HEARTBEAT_URL" and value and not re.fullmatch(r"https://\S+", value):
+                    errors.append("Uptime check URL must start with https://.")
+                    continue
                 if d.key == "ADMIN_URL" and value:
                     if not re.fullmatch(r"https?://[^\s/]+(/[^\s]*)?", value):
                         errors.append("Admin address must start with https:// (e.g. https://3pl.ipromo.com).")

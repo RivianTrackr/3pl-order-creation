@@ -19,6 +19,7 @@ import secrets
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 from . import clientmatch
 from . import health
@@ -71,6 +72,13 @@ def match_clients(boot, db: Database, user) -> int:
     handler.close()
     db.finish_run(run_id, "ok", counts)
     return 0
+
+
+def _heartbeat_url(db: Database, boot) -> Optional[str]:
+    try:
+        return setting_values(db, boot.secret_box()).get("HEARTBEAT_URL")
+    except Exception:  # noqa: BLE001
+        return db.settings_raw().get("HEARTBEAT_URL")
 
 
 def _alert_channel(db: Database, boot, processor):
@@ -250,6 +258,7 @@ def main(argv=None) -> int:
             db.set_meta("last_run_error", str(exc)[:1000])
             settings, notifier = _alert_channel(db, boot, processor)
             health.after_run(db, settings, notifier, ok=False)
+            health.ping(_heartbeat_url(db, boot))
         return 1
 
     root.removeHandler(handler)
@@ -261,6 +270,7 @@ def main(argv=None) -> int:
         db.set_meta("last_run_finished", utcnow())
         db.set_meta("last_run_error", None)
         health.after_run(db, processor.s, processor.notifier, ok=True)
+        health.ping(_heartbeat_url(db, boot))
         maintenance.run_daily_tasks(db, processor.s, processor.notifier, boot.backup_dir)
     try:
         db.prune_logs(int(setting_values(db, boot.secret_box()).get("LOG_RETENTION_DAYS") or 90))
