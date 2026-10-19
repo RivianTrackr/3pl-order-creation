@@ -284,7 +284,7 @@ class Processor:
             return
 
         if not force and rec is not None and rec["state"] == "held" and rec["last_modified"] == last_modified \
-                and self._still_held(job_id):
+                and self._still_held(rec, job_id):
             self.stats["held"] += 1       # unchanged PO, job still not submitted: nothing else to fetch
             return
 
@@ -293,15 +293,22 @@ class Processor:
 
         try:
             self._process(po_id, job_id, last_modified)
-        except HoldPO as exc:
+        except (HoldPO, ClientNotReady) as exc:
+            # Waiting on the job (not submitted yet) or on the client (paused on the Clients page): the PO goes
+            # through on its own once that changes, so it's on hold rather than a problem.
             self.stats["held"] += 1
+            paused = isinstance(exc, ClientNotReady)
             reason = str(exc.args[0])
             newly_held = rec is None or rec["state"] != "held" or rec["skip_reason"] != reason
             if not self.s.dry_run:
                 self.db.upsert(po_id, job_id, state="held", skip_reason=reason, last_modified=last_modified,
                                last_error=None)
             if newly_held or self.s.dry_run:   # one timeline entry per hold, not one every run
-                self.event(po_id, job_id, exc.args[1], "info", "po.held", f"On hold: {reason}", exc.args[2])
+                ref = (rec["reference"] if rec else None) if paused else exc.args[1]
+                self.event(po_id, job_id, ref, "info", "po.held", f"On hold: {reason}",
+                           None if paused else exc.args[2])
+                if paused and newly_held and not self.s.dry_run:
+                    self._alert_paused(po_id, job_id, ref, reason)
         except SkipPO as exc:
             self.stats["skipped"] += 1
             if not self.s.dry_run:
@@ -420,9 +427,16 @@ class Processor:
         except Exception:  # noqa: BLE001 - never let this stop the run
             log.exception("Could not check sent PO %s for changes", po_id)
 
-    def _still_held(self, job_id: int) -> bool:
-        """Whether a held PO's job is still in a status that waits. One cheap job lookup instead of
-        re-reading the whole PO; anything else (submitted, done) goes through the full check."""
+    def _client_paused(self, group_id: Optional[str]) -> bool:
+        creds = self.s.clients.get(str(group_id or ""))
+        return creds is not None and not creds.active
+
+    def _still_held(self, rec, job_id: int) -> bool:
+        """Whether a held PO still has to wait: its client is paused (checked here, no Syncore call), or its job
+        is in a status that waits (one cheap job lookup instead of re-reading the whole PO). Anything else goes
+        through the full check."""
+        if self._client_paused(rec["client_id"]):
+            return True
         status = str(self.syncore.get_job(job_id).get("status") or "").casefold()
         return status not in self.s.job_statuses and status not in self.s.ignore_job_statuses
 
@@ -655,6 +669,17 @@ class Processor:
         self.event(po_id, job_id, ref, "info", "alert.sent",
                    f"{'Dry run: alert not sent' if self.s.dry_run else 'Alert emailed'} to {self.notifier.email_to}: {subject}")
         return True
+
+    def _alert_paused(self, po_id: int, job_id: int, ref: Optional[str], reason: str) -> None:
+        """'PO for a paused client' email (off by default in Settings > Emails)."""
+        view = self.db.po_view(po_id)
+        lines = [f"{ref or f'PO id {po_id}'} is on hold: {reason}",
+                 "It goes through automatically once the client is activated on the Clients page."]
+        self._send_alert(po_id, job_id, ref, f"[3PL] {ref or f'PO id {po_id}'} is waiting for a paused client", lines,
+                         "client_paused",
+                         emails.problem_email(admin_url=self.s.admin_url, po_id=po_id, job_id=job_id, reference=ref,
+                                              client=view["client_display"] if view else None, error=reason,
+                                              order_id=None, attempts=0, gave_up=False, client_paused=True))
 
     def _alert_shortage(self, po_id: int, po: dict, job: dict, creds: TplClient, order_id: int, shortages: list) -> None:
         ref = mapping.reference_number(po)

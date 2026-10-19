@@ -585,3 +585,26 @@ def test_order_cancelled_in_3pl_central_is_recorded(env):
     tpl.shipments = {5000: {"status": "cancelled", "tracking": None, "carrier": "UPS", "shipped_at": None}}
     proc.run(NOW + timedelta(hours=2))
     assert db.get(900)["order_status"] == "cancelled"
+
+
+def test_po_for_a_paused_client_is_on_hold_not_an_error(env):
+    from dataclasses import replace
+    proc, db, syncore, tpl, notifier = env([make_po()])
+    proc.s.clients["5001"] = replace(CLIENT, active=False)
+    proc.run(NOW)
+    row = db.get(900)
+    assert row["state"] == "held" and "paused on the Clients page" in row["skip_reason"] and row["last_error"] is None
+    assert row["attempts"] == 0 and notifier.sent == []              # no error, no email (off by default)
+    assert 900 not in [r["po_id"] for r in db.recent(50)]             # not under Active
+    assert 900 not in [r["po_id"] for r in db.recent(50, state="problems")]
+
+    db.upsert(900, 12345, first_seen=(NOW - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%S"))
+    calls = []
+    real_get_job = syncore.get_job
+    syncore.get_job = lambda job_id: calls.append(job_id) or real_get_job(job_id)
+    proc.run(NOW)                                                     # still paused: nothing asked of Syncore
+    assert calls == [] and tpl.created == []
+
+    proc.s.clients["5001"] = CLIENT                                   # activated
+    proc.run(NOW)
+    assert db.get(900)["state"] == "done" and len(tpl.created) == 1
