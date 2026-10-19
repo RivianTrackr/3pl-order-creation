@@ -104,6 +104,7 @@ def main(argv=None) -> int:
     sub.add_parser("gen-keys", help="print TPLSYNC_ENCRYPTION_KEY and ADMIN_SECRET_KEY lines for .env")
     p_user = sub.add_parser("create-user", help="create an admin login or reset its password")
     p_user.add_argument("username")
+    p_user.add_argument("--viewer", action="store_true", help="read-only: can view but not change anything")
     sub.add_parser("admin", help="run the admin web UI")
 
     p_init = sub.add_parser("init", help="record the go-live time; only POs created after it are processed")
@@ -167,8 +168,8 @@ def main(argv=None) -> int:
             db.set_password(user["id"], hash_password(password))
             print(f"Password updated for {user['username']}")
         else:
-            db.create_user(args.username, hash_password(password))
-            print(f"Created admin user {args.username}")
+            db.create_user(args.username, hash_password(password), "viewer" if args.viewer else "admin")
+            print(f"Created {'view-only' if args.viewer else 'admin'} user {args.username}")
         db.audit("cli", "user.save", args.username)
         return 0
 

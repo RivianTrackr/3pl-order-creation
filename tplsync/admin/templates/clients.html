@@ -6,6 +6,7 @@
     <h1 class="page-title">Clients</h1>
     <p class="page-subtitle">Clients shipping through {{ warehouse_name }}. A client's POs only go to 3PL Central once it has all four details and is active.</p>
   </div>
+  {% if can_edit %}
   <div class="header-actions">
     <form method="post" action="/clients/match">
       <input type="hidden" name="_csrf" value="{{ csrf }}">
@@ -23,6 +24,7 @@
     </form>
     <a class="btn btn-primary" href="/clients/new"><i class="fa-solid fa-plus"></i> Add client</a>
   </div>
+  {% endif %}
 </header>
 
 <details class="help-box">
@@ -78,7 +80,7 @@
             {% if c.suggestions %}<div class="cell-meta"><a href="/clients/{{ c.id }}#suggestions">{{ c.suggestions }} possible Syncore {{ 'group' if c.suggestions == 1 else 'groups' }} to confirm</a></div>{% endif %}
           </td>
           <td class="nowrap" data-label="Last PO" title="{{ localtime(c.last_po_at) }}">{{ localtime(c.last_po_at, short=True) or '—' }}</td>
-          <td class="row-actions"><a class="btn btn-{{ 'primary' if c.status == 'incomplete' else 'secondary' }} btn-sm" href="/clients/{{ c.id }}">{{ 'Finish setup' if c.status == 'incomplete' else 'Edit' }}</a></td>
+          <td class="row-actions"><a class="btn btn-{{ 'primary' if c.status == 'incomplete' and can_edit else 'secondary' }} btn-sm" href="/clients/{{ c.id }}">{{ ('Finish setup' if c.status == 'incomplete' else 'Edit') if can_edit else 'View' }}</a></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -94,6 +96,7 @@
   {% endif %}
 </section>
 
+{% if can_edit %}
 <section class="card">
   <details class="card-details">
     <summary class="card-header"><h2 class="card-title"><i class="fa-solid fa-list"></i> Add several clients by name</h2><span class="muted small">Show</span></summary>
@@ -108,4 +111,5 @@
     </form>
   </details>
 </section>
+{% endif %}
 {% endblock %}

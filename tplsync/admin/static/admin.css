@@ -558,3 +558,6 @@ tr.row-link[data-href] { cursor: pointer; }
 .card-attention .card-title i { color: var(--warning); }
 .sku-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .sku-actions form { margin: 0; }
+.narrow { max-width: 560px; }
+.plain-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.plain-fieldset[disabled] .input { background: var(--surface-muted); color: var(--text-secondary); }

@@ -6,12 +6,12 @@
     <h1 class="page-title">Ship Via</h1>
     <p class="page-subtitle">How each PO's <strong>Ship Via</strong> becomes a carrier and service in 3PL Central.</p>
   </div>
-  <form method="post" action="/shipping/refresh-carriers">
+  {% if can_edit %}<form method="post" action="/shipping/refresh-carriers">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <button class="btn {{ 'btn-secondary' if carriers else 'btn-primary' }}" {{ 'disabled' if not has_client }} data-loading-text="Loading…">
       <i class="fa-solid fa-rotate"></i> {{ 'Refresh carrier list' if carriers else 'Load carrier list' }}
     </button>
-  </form>
+  </form>{% endif %}
 </header>
 
 <details class="help-box">
@@ -69,7 +69,7 @@
           <td data-label="Ship Via" class="mono strong">{{ u.ship_via }}</td>
           <td data-label="POs">{{ u.pos }}</td>
           <td data-label="Latest">{% if u.po_id %}<a href="/po/{{ u.po_id }}" class="mono">{{ u.reference or ('PO id ' ~ u.po_id) }}</a>{% endif %} <span class="cell-meta">{{ localtime(u.last_at, short=True) }}</span></td>
-          <td class="row-actions"><a class="btn btn-primary btn-sm" href="/shipping?check={{ u.ship_via | urlencode }}#override-form"><i class="fa-solid fa-plus"></i> Create override for “{{ u.base }}”</a></td>
+          <td class="row-actions">{% if can_edit %}<a class="btn btn-primary btn-sm" href="/shipping?check={{ u.ship_via | urlencode }}#override-form"><i class="fa-solid fa-plus"></i> Create override for “{{ u.base }}”</a>{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -84,7 +84,7 @@
     <span class="muted small">{{ rules | length }} shorthand{{ '' if rules | length == 1 else 's' }}</span>
   </div>
   {% if carriers %}<p class="card-note">Enter your team's shorthand <strong>without</strong> the account number: “UPS GRND”, not “UPS GRND C713X7”. The account is read from each PO.</p>{% endif %}
-  {% if carriers %}
+  {% if carriers and can_edit %}
   <form method="post" action="/shipping/save" class="card-body" id="override-form" data-carriers="{{ carriers_json }}">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     {% if editing %}<input type="hidden" name="id" value="{{ editing.id }}">{% endif %}
@@ -138,11 +138,13 @@
           <td data-label="Billing">{% if r.billing_code %}{{ r.billing_code }}{% else %}<span class="muted">Default</span>{% endif %}</td>
           <td data-label="Default account">{% if r.account %}<span class="mono">{{ r.account }}</span>{% else %}<span class="muted">From the PO</span>{% endif %}</td>
           <td class="row-actions">
+            {% if can_edit %}
             <a class="btn btn-secondary btn-sm" href="/shipping?edit={{ r.id }}"><i class="fa-solid fa-pen"></i><span class="sr-only">Edit {{ r.ship_via }}</span></a>
             <form method="post" action="/shipping/{{ r.id }}/delete" data-confirm="Delete the override for “{{ r.ship_via }}”?">
               <input type="hidden" name="_csrf" value="{{ csrf }}">
               <button class="btn btn-danger-ghost btn-sm"><i class="fa-solid fa-trash"></i><span class="sr-only">Delete {{ r.ship_via }}</span></button>
             </form>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}

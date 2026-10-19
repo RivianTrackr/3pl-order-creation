@@ -8,7 +8,7 @@
   </div>
 </header>
 
-{% if candidates %}
+{% if candidates and can_edit %}
 <section class="card card-attention">
   <div class="card-header">
     <h2 class="card-title"><i class="fa-solid fa-triangle-exclamation"></i> Skipped because no SKU matched</h2>
@@ -69,11 +69,13 @@
             <td class="mono nowrap" data-label="SKU">{{ r.sku }}</td>
             <td class="sku-description" data-label="Description">{{ r.description or '—' }}</td>
             <td class="row-actions">
+              {% if can_edit %}
               <form method="post" action="/skus/{{ r.id }}/delete" data-confirm="Stop allowing {{ r.sku }} for {{ r.client_name }}?">
                 <input type="hidden" name="_csrf" value="{{ csrf }}">
                 {% if selected %}<input type="hidden" name="client" value="{{ selected }}">{% endif %}
                 <button class="btn btn-danger-ghost btn-sm" title="Remove"><i class="fa-solid fa-trash"></i><span class="sr-only">Remove {{ r.sku }}</span></button>
               </form>
+              {% endif %}
             </td>
           </tr>
           {% endfor %}
@@ -89,6 +91,7 @@
     {% endif %}
   </section>
 
+  {% if can_edit %}
   <div class="stack">
     <section class="card">
       <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-file-import"></i> Import a spreadsheet</h2></div>
@@ -120,5 +123,6 @@
       </form>
     </section>
   </div>
+  {% endif %}
 </div>
 {% endblock %}

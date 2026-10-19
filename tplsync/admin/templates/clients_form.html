@@ -20,7 +20,7 @@
     </p>
     {% endif %}
   </div>
-  {% if client %}
+  {% if client and can_edit %}
   <button class="btn btn-secondary" form="test-client" data-loading-text="Testing…"
           {{ 'disabled' if not (client.customer_id and client.client_id and client.has_secret) }}><i class="fa-solid fa-plug"></i> Test connection</button>
   {% endif %}
@@ -54,11 +54,11 @@
         <div class="strong">{{ sgg.business_name }}</div>
         <div class="cell-meta">Syncore client group #{{ sgg.syncore_group_id }}</div>
       </div>
-      <form method="post" action="/clients/{{ client.id }}/use-syncore">
+      {% if can_edit %}<form method="post" action="/clients/{{ client.id }}/use-syncore">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
         <input type="hidden" name="syncore_group_id" value="{{ sgg.syncore_group_id }}">
         <button class="btn btn-secondary btn-sm">Use this one</button>
-      </form>
+      </form>{% endif %}
     </li>
     {% endfor %}
   </ul>
@@ -68,6 +68,7 @@
 
 <form method="post" action="/clients/save">
   <input type="hidden" name="_csrf" value="{{ csrf }}">
+  <fieldset class="plain-fieldset" {{ 'disabled' if not can_edit }}>
   {% if client %}<input type="hidden" name="id" value="{{ client.id }}">{% endif %}
 
   <section class="card">
@@ -159,6 +160,8 @@
   </section>
   {% endif %}
 
+  </fieldset>
+  {% if can_edit %}
   <div class="sticky-actions">
     <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save client</button>
     <a class="btn btn-ghost" href="/clients">Cancel</a>
@@ -166,6 +169,7 @@
     <button class="btn btn-danger btn-push" form="delete-client"><i class="fa-solid fa-trash"></i> Delete</button>
     {% endif %}
   </div>
+  {% endif %}
 </form>
 
 {% if client %}

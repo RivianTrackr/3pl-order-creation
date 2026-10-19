@@ -200,6 +200,7 @@ class Database:
         self.conn.executescript(SCHEMA)
         self._add_column("purchase_orders", "job_submitted_at", "TEXT")
         self._add_column("purchase_orders", "client_name", "TEXT")
+        self._add_column("users", "role", "TEXT NOT NULL DEFAULT 'admin'")   # admin | viewer
         for column in ("sent_snapshot", "changed_at", "change_summary", "change_signature", "order_status",
                        "tracking_number", "ship_carrier", "shipped_at", "ship_checked_at"):
             self._add_column("purchase_orders", column, "TEXT")
@@ -608,10 +609,15 @@ class Database:
     def get_user_by_name(self, username: str) -> Optional[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
 
-    def create_user(self, username: str, password_hash: str) -> None:
+    def create_user(self, username: str, password_hash: str, role: str = "admin") -> None:
         with self.conn:
             self.conn.execute("INSERT INTO users(username, password_hash, created_at) VALUES(?, ?, ?)",
                               (username, password_hash, utcnow()))
+            self.conn.execute("UPDATE users SET role = ? WHERE username = ?", (role, username))
+
+    def set_role(self, user_id: int, role: str) -> None:
+        with self.conn:
+            self.conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
 
     def set_password(self, user_id: int, password_hash: str) -> None:
         """Also bumps session_version, signing out existing sessions."""

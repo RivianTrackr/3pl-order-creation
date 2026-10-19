@@ -36,14 +36,14 @@
 
 {# Retry / Process / Restore and Dismiss for a PO. #}
 {% macro po_actions(r, labelled=False) -%}
-  {% if r.state in ('failed', 'error', 'dismissed', 'skipped') %}
+  {% if not can_edit %}{% elif r.state in ('failed', 'error', 'dismissed', 'skipped') %}
   <form method="post" action="/po/{{ r.po_id }}/retry">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <button class="btn btn-{{ 'primary' if labelled else 'secondary' }} btn-sm" title="{{ {'dismissed': 'Bring this PO back', 'skipped': 'Process this PO on the next run'}.get(r.state, 'Try again on the next run') }}">
       <i class="fa-solid {{ 'fa-arrow-rotate-left' if r.state == 'dismissed' else 'fa-rotate-right' }}"></i> {{ {'dismissed': 'Restore', 'skipped': 'Process'}.get(r.state, 'Retry') }}</button>
   </form>
   {% endif %}
-  {% if r.state in ('failed', 'error', 'waiting', 'held') %}
+  {% if can_edit and r.state in ('failed', 'error', 'waiting', 'held') %}
   <form method="post" action="/po/{{ r.po_id }}/dismiss" data-confirm="Dismiss {{ r.reference or ('PO ' ~ r.po_id) }}? It won't be sent to 3PL Central.">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <button class="btn {{ 'btn-danger' if labelled else 'btn-danger-ghost' }} btn-sm" title="Don't send this PO to 3PL Central"><i class="fa-solid fa-ban"></i><span class="{{ '' if labelled else 'sr-only' }}">Dismiss</span></button>

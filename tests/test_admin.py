@@ -463,3 +463,34 @@ def test_sku_from_a_skipped_po_can_be_allowed_in_one_click(client, boot):
     client.post("/skus/allow-from-po", data={"_csrf": csrf(client, "/skus"), "po_id": 702, "sku": "CENT037"})
     assert db.allowed_skus_by_client()[centurion] == {"cent037"}
     assert db.get(702)["state"] == "error"                                 # will be processed next run
+
+
+def test_view_only_user_can_look_but_not_change(client, boot):
+    db = Database(boot.db_path)
+    db.create_user("ps-team", hash_password(PASSWORD), "viewer")
+    db.upsert(801, 77990, state="error", reference="77990-1", last_error="boom", attempts=2)
+    client.post("/login", data={"username": "ps-team", "password": PASSWORD})
+    page = client.get("/").text
+    assert "77990-1" in page and 'action="/run-now"' not in page and 'action="/po/801/retry"' not in page
+    assert "view only" in page
+    assert ">Settings<" not in page
+    assert client.get("/settings").status_code == 403
+    token = re.search(r'name="_csrf" value="([^"]+)"', client.get("/users").text).group(1)
+    assert client.post("/run-now", data={"_csrf": token}).status_code == 403
+    assert client.post("/po/801/retry", data={"_csrf": token}).status_code == 403
+    assert db.get(801)["state"] == "error"
+    users = client.get("/users").text
+    assert "Change your password" in users and "Add user" not in users and "Activity log" not in users
+    assert "Save client" not in client.get(f"/clients/{db.save_client(None, name='X Co', source='manual')}").text
+
+
+def test_admin_can_add_a_view_only_user_and_switch_access(client, boot):
+    login(client)
+    db = Database(boot.db_path)
+    token = csrf(client, "/users")
+    client.post("/users/create", data={"_csrf": token, "new_username": "ps-team", "new_password": PASSWORD,
+                                       "role": "viewer"})
+    viewer = db.get_user_by_name("ps-team")
+    assert viewer["role"] == "viewer"
+    client.post(f"/users/{viewer['id']}/role", data={"_csrf": token, "role": "admin"})
+    assert db.get_user(viewer["id"])["role"] == "admin"

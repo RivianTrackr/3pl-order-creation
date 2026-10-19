@@ -23,11 +23,11 @@
         <a href="/skus" class="{{ 'active' if nav == 'skus' }}"><i class="fa-solid fa-barcode"></i><span>Allowed SKUs</span></a>
         <a href="/shipping" class="{{ 'active' if nav == 'shipping' }}"><i class="fa-solid fa-truck-fast"></i><span>Ship Via</span></a>
         <a href="/logs" class="{{ 'active' if nav == 'logs' }}"><i class="fa-solid fa-list-ul"></i><span>Logs</span></a>
-        <a href="/settings" class="{{ 'active' if nav == 'settings' }}"><i class="fa-solid fa-gear"></i><span>Settings</span></a>
-        <a href="/users" class="{{ 'active' if nav == 'users' }}"><i class="fa-solid fa-user-shield"></i><span>Users</span></a>
+        {% if can_edit %}<a href="/settings" class="{{ 'active' if nav == 'settings' }}"><i class="fa-solid fa-gear"></i><span>Settings</span></a>{% endif %}
+        <a href="/users" class="{{ 'active' if nav == 'users' }}"><i class="fa-solid fa-user-shield"></i><span>{{ 'Users' if can_edit else 'Account' }}</span></a>
       </nav>
       <div class="sidebar-footer">
-        <span class="sidebar-user"><i class="fa-solid fa-circle-user"></i> {{ user.username }}</span>
+        <span class="sidebar-user"><i class="fa-solid fa-circle-user"></i> {{ user.username }}{% if not can_edit %} · view only{% endif %}</span>
         <form method="post" action="/logout">
           <input type="hidden" name="_csrf" value="{{ csrf }}">
           <button type="submit" class="btn btn-ghost btn-sm"><i class="fa-solid fa-right-from-bracket"></i> Sign out</button>

@@ -35,6 +35,9 @@ from .auth import (FLASH_COOKIE, SESSION_COOKIE, SESSION_MAX_AGE, LoginThrottle,
 
 HERE = Path(__file__).resolve().parent
 PUBLIC_PATHS = ("/login", "/static/", "/healthz")
+# What a read-only (viewer) user may change: their own password and PO notes.
+VIEWER_POSTS = re.compile(r"^/(logout|account/password|po/\d+/notes(/\d+/delete)?)$")
+VIEWER_BLOCKED_PAGES = ("/settings",)
 TRACKING_URLS = {
     "ups": "https://www.ups.com/track?tracknum={}",
     "fedex": "https://www.fedex.com/fedextrack/?trknbr={}",
@@ -117,6 +120,7 @@ def create_app(boot: Bootstrap) -> FastAPI:
             flash = signer.read_flash(request.cookies[FLASH_COOKIE])
         response = templates.TemplateResponse(request, template, {
             "user": getattr(request.state, "user", None),
+            "can_edit": (getattr(request.state, "user", None) or {}).get("role", "admin") != "viewer",
             "csrf": getattr(request.state, "csrf", ""),
             "flash": flash,
             "localtime": localtime,
@@ -171,6 +175,17 @@ def create_app(boot: Bootstrap) -> FastAPI:
                 response.delete_cookie(SESSION_COOKIE, path="/")
                 return _secure_headers(response)
             request.state.user = dict(user)
+            if user["role"] == "viewer" and (
+                    (request.method != "GET" and not VIEWER_POSTS.match(path))
+                    or (request.method == "GET" and path.startswith(VIEWER_BLOCKED_PAGES))):
+                db = Database(boot.db_path)
+                try:
+                    request.state.csrf = signer.csrf_token(session["n"])
+                    return _secure_headers(render(request, db, "error.html", status_code=403,
+                                                  message="Your account can view the dashboard and logs but not "
+                                                          "change settings. Ask an admin."))
+                finally:
+                    db.close()
             request.state.nonce = session["n"]
             request.state.csrf = signer.csrf_token(session["n"])
             refreshed = signer.session_token(user["id"], user["session_version"], session["n"])
@@ -943,7 +958,7 @@ def create_app(boot: Bootstrap) -> FastAPI:
 
     @app.post("/users/create", dependencies=[Depends(csrf_protect)])
     def user_create(request: Request, db: Database = Depends(get_db), new_username: str = Form(...),
-                    new_password: str = Form(...)):
+                    new_password: str = Form(...), role: str = Form("admin")):
         new_username = new_username.strip()
         if not re.fullmatch(r"[A-Za-z0-9_.@-]{3,60}", new_username):
             return redirect("/users", "Usernames are 3-60 letters, numbers or . _ @ -", "error")
@@ -952,9 +967,22 @@ def create_app(boot: Bootstrap) -> FastAPI:
             return redirect("/users", problem, "error")
         if db.get_user_by_name(new_username):
             return redirect("/users", f"{new_username} already exists.", "error")
-        db.create_user(new_username, hash_password(new_password))
-        db.audit(username(request), "user.create", new_username)
-        return redirect("/users", f"Created {new_username}.")
+        role = "viewer" if role == "viewer" else "admin"
+        db.create_user(new_username, hash_password(new_password), role)
+        db.audit(username(request), "user.create", f"{new_username} ({role})")
+        return redirect("/users", f"Created {new_username} ({'view only' if role == 'viewer' else 'admin'}).")
+
+    @app.post("/users/{user_id}/role", dependencies=[Depends(csrf_protect)])
+    def user_role(request: Request, user_id: int, role: str = Form(...), db: Database = Depends(get_db)):
+        target = db.get_user(user_id)
+        if not target:
+            raise HTTPException(404, "User not found.")
+        if target["id"] == request.state.user["id"]:
+            return redirect("/users", "You can't change your own access.", "error")
+        role = "viewer" if role == "viewer" else "admin"
+        db.set_role(user_id, role)
+        db.audit(username(request), "user.role", f"{target['username']} -> {role}")
+        return redirect("/users", f"{target['username']} is now {'view only' if role == 'viewer' else 'an admin'}.")
 
     @app.post("/users/{user_id}/delete", dependencies=[Depends(csrf_protect)])
     def user_delete(request: Request, user_id: int, db: Database = Depends(get_db)):

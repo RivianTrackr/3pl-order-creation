@@ -3,21 +3,33 @@
 {% block content %}
 <header class="page-header">
   <div>
-    <h1 class="page-title">Users</h1>
-    <p class="page-subtitle">Everyone listed here can sign in and change every setting.</p>
+    <h1 class="page-title">{{ 'Users' if can_edit else 'Your account' }}</h1>
+    <p class="page-subtitle">{% if can_edit %}<strong>Admins</strong> can change everything. <strong>View only</strong> users see the dashboard, POs and logs and can add notes, but can't change settings, clients or orders.{% else %}You have view-only access. Ask an admin if you need to change something.{% endif %}</p>
   </div>
 </header>
 
-<div class="two-col">
+<div class="{{ 'two-col' if can_edit else 'narrow' }}">
+  {% if can_edit %}
   <section class="card">
-    <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-users"></i> Admin users</h2></div>
+    <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-users"></i> Users</h2></div>
     <div class="table-wrap">
       <table class="table">
-        <thead><tr><th>Username</th><th>Last sign-in</th><th></th></tr></thead>
+        <thead><tr><th>Username</th><th>Access</th><th>Last sign-in</th><th></th></tr></thead>
         <tbody>
           {% for u in users %}
           <tr>
             <td class="strong">{{ u.username }}{% if u.id == user.id %} <span class="badge badge-muted">You</span>{% endif %}</td>
+            <td>
+              {% if u.id != user.id %}
+              <form method="post" action="/users/{{ u.id }}/role" class="inline-form no-margin">
+                <input type="hidden" name="_csrf" value="{{ csrf }}">
+                <select class="input input-sm" name="role" data-autosubmit aria-label="Access for {{ u.username }}">
+                  <option value="admin" {{ 'selected' if u.role != 'viewer' }}>Admin</option>
+                  <option value="viewer" {{ 'selected' if u.role == 'viewer' }}>View only</option>
+                </select>
+              </form>
+              {% else %}<span class="badge badge-muted">{{ 'View only' if u.role == 'viewer' else 'Admin' }}</span>{% endif %}
+            </td>
             <td class="nowrap">{{ localtime(u.last_login_at) or 'Never' }}</td>
             <td class="row-actions">
               {% if u.id != user.id %}
@@ -38,10 +50,13 @@
       <div class="form-grid">
         <div class="field"><label for="new_username">Username</label><input class="input" id="new_username" name="new_username" autocomplete="off" required></div>
         <div class="field"><label for="new_password">Password</label><input class="input" type="password" id="new_password" name="new_password" autocomplete="new-password" minlength="12" required></div>
+        <div class="field"><label for="role">Access</label>
+          <select class="input" id="role" name="role"><option value="admin">Admin</option><option value="viewer">View only</option></select></div>
       </div>
       <div class="form-actions"><button class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add user</button></div>
     </form>
   </section>
+  {% endif %}
 
   <section class="card">
     <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-key"></i> Change your password</h2></div>
@@ -56,6 +71,7 @@
   </section>
 </div>
 
+{% if can_edit %}
 <section class="card">
   <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-clock-rotate-left"></i> Activity log</h2></div>
   {% if audit %}
@@ -73,4 +89,5 @@
   <div class="empty-state"><p>No activity yet.</p></div>
   {% endif %}
 </section>
+{% endif %}
 {% endblock %}

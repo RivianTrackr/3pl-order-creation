@@ -15,10 +15,12 @@
 <div class="notice notice-warning notice-action">
   <i class="fa-solid fa-pen"></i>
   <span><strong>Changed in Syncore after it was sent</strong> ({{ localtime(record.changed_at) }}). 3PL order {{ record.order_id }} wasn't changed, so check it with the warehouse.<br>{{ record.change_summary }}</span>
+  {% if can_edit %}
   <form method="post" action="/po/{{ po_id }}/reviewed">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <button class="btn btn-secondary btn-sm"><i class="fa-solid fa-check"></i> Mark reviewed</button>
   </form>
+  {% endif %}
 </div>
 {% endif %}
 

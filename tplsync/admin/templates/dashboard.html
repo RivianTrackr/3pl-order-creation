@@ -13,10 +13,12 @@
       <li class="muted"><i class="fa-solid fa-globe"></i> {{ tz_name }}</li>
     </ul>
   </div>
+  {% if can_edit %}
   <form method="post" action="/run-now">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <button class="btn btn-primary" {{ 'disabled' if not start_date }} title="Check Syncore for new POs now instead of waiting for the next 5-minute run"><i class="fa-solid fa-play"></i> Run now</button>
   </form>
+  {% endif %}
 </header>
 
 {% if paused %}
@@ -29,7 +31,7 @@
 <div class="notice notice-error"><i class="fa-solid fa-circle-exclamation"></i><span>The last run failed: {{ last_error }} {% if last_run %}<a href="/logs/runs/{{ last_run.id }}">View log</a>{% endif %}</span></div>
 {% endif %}
 
-{% if not setup_done %}
+{% if not setup_done and can_edit %}
 <section class="card">
   <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-list-check"></i> Setup</h2></div>
   <ul class="checklist">
@@ -113,6 +115,7 @@
   {% endif %}
 </section>
 
+{% if can_edit %}
 <section class="card">
   <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-vial"></i> Test a purchase order</h2></div>
   <div class="card-body">
@@ -132,4 +135,5 @@
     </form>
   </div>
 </section>
+{% endif %}
 {% endblock %}
