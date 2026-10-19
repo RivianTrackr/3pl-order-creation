@@ -394,7 +394,9 @@ def test_dashboard_shows_client_and_searches(client, boot):
     db.upsert(502, 77700, state="held", reference="77700-1", client_name="Spot Hero",
               skip_reason="Syncore job 77700 is WIP")
     page = client.get("/").text
-    assert "Centurion" in page and "Spot Hero" in page and "On hold" in page
+    assert "Centurion" in page and "77700-1" not in page                     # on hold isn't under Active
+    held = client.get("/?state=held").text
+    assert "77700-1" in held and "Spot Hero" in held and "On hold (1)" in held
     found = client.get("/?q=centurion").text
     assert "77673-1" in found and "77700-1" not in found and "1 result" in found
     assert "77700-1" in client.get("/?q=77700").text
@@ -677,3 +679,15 @@ def test_without_email_set_up_a_password_is_required(client, boot):
 def test_tokens_are_masked_in_logs():
     from tplsync.runlog import redact
     assert redact("GET /set-password?token=abcDEF123_-xyz HTTP/1.1") == "GET /set-password?token=*** HTTP/1.1"
+
+
+def test_details_show_the_current_message_not_a_stale_one(client, boot):
+    login(client)
+    db = Database(boot.db_path)
+    db.upsert(1101, 77750, state="held", reference="77750-1", last_error="The Baldwin Group is paused on the Clients page.",
+              skip_reason="Syncore job 77750 is WIP; it's sent once the job is Submitted")
+    db.upsert(1102, 77681, state="done", reference="77681-1", order_id=206466, completion="completed",
+              skip_reason="Syncore job 77681 is WIP; it's sent once the job is Submitted")
+    held = client.get("/?state=held").text
+    assert "job 77750 is WIP" in held and "is paused on the Clients page" not in held
+    assert "job 77681 is WIP" not in client.get("/?state=done").text

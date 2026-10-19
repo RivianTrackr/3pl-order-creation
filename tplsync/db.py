@@ -314,7 +314,7 @@ class Database:
             where.append("p.state = ?")
             params.append(state)
         elif not include_skipped:
-            where.append("p.state NOT IN ('skipped', 'dismissed')")
+            where.append("p.state NOT IN ('skipped', 'dismissed', 'held')")      # Active; on hold has its own filter
         sql = ("SELECT p.*, COALESCE(c.name, p.client_name) AS client_display, "
                "(SELECT COUNT(*) FROM po_notes n WHERE n.po_id = p.po_id) AS note_count FROM purchase_orders p "
                "LEFT JOIN clients c ON c.syncore_group_id = p.client_id")
@@ -408,7 +408,8 @@ class Database:
               SUM(completion = 'open_short') AS open_short,
               SUM(state IN ('error', 'failed')) AS problems,
               SUM(state IN ('waiting', 'held', 'processing')) AS pending,
-              SUM(changed_at IS NOT NULL) AS changed
+              SUM(changed_at IS NOT NULL) AS changed,
+              SUM(state = 'held') AS held
             FROM purchase_orders""").fetchone()
         return {k: row[k] or 0 for k in row.keys()}
 

@@ -116,7 +116,7 @@
         <input class="input input-sm" type="search" name="q" value="{{ q }}" placeholder="Search reference, job or client" aria-label="Search purchase orders">
       </form>
       <nav class="segmented" aria-label="Filter">
-        {% for key, label in [('', 'Active'), ('done', 'Done'), ('open_short', 'Open'), ('problems', 'Problems'), ('changed', 'Changed' ~ (' (' ~ counts.changed ~ ')' if counts.changed else '')), ('skipped', 'Skipped'), ('dismissed', 'Dismissed')] %}
+        {% for key, label in [('', 'Active'), ('held', 'On hold' ~ (' (' ~ counts.held ~ ')' if counts.held else '')), ('done', 'Done'), ('open_short', 'Open'), ('problems', 'Problems'), ('changed', 'Changed' ~ (' (' ~ counts.changed ~ ')' if counts.changed else '')), ('skipped', 'Skipped'), ('dismissed', 'Dismissed')] %}
         <a href="/?state={{ key }}" class="{{ 'active' if state == key and not q }}">{{ label }}</a>
         {% endfor %}
       </nav>
@@ -150,7 +150,7 @@
           <td data-label="Client" class="client-col">{{ r.client_display or '—' }}</td>
           <td data-label="Status">{{ m.po_status(r) }}</td>
           <td data-label="3PL order"><span class="mono">{{ r.order_id or '—' }}</span>{{ m.tracking(r) }}</td>
-          <td data-label="Details" class="cell-detail">{{ r.last_error or r.skip_reason or '' }}</td>
+          <td data-label="Details" class="cell-detail">{% if r.state in ('error', 'failed') %}{{ r.last_error or '' }}{% elif r.state in ('held', 'skipped', 'dismissed') %}{{ r.skip_reason or r.last_error or '' }}{% elif r.changed_at %}{{ r.change_summary or '' }}{% endif %}</td>
           <td data-label="Updated" class="nowrap" title="{{ localtime(r.updated_at) }}">{{ localtime(r.updated_at, short=True) }}</td>
           <td class="row-actions">{{ m.po_actions(r) }}</td>
         </tr>

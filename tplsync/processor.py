@@ -298,14 +298,15 @@ class Processor:
             reason = str(exc.args[0])
             newly_held = rec is None or rec["state"] != "held" or rec["skip_reason"] != reason
             if not self.s.dry_run:
-                self.db.upsert(po_id, job_id, state="held", skip_reason=reason, last_modified=last_modified)
+                self.db.upsert(po_id, job_id, state="held", skip_reason=reason, last_modified=last_modified,
+                               last_error=None)
             if newly_held or self.s.dry_run:   # one timeline entry per hold, not one every run
                 self.event(po_id, job_id, exc.args[1], "info", "po.held", f"On hold: {reason}", exc.args[2])
         except SkipPO as exc:
             self.stats["skipped"] += 1
             if not self.s.dry_run:
                 self.db.upsert(po_id, job_id, state="skipped", skip_reason=str(exc.args[0]),
-                               last_modified=last_modified)
+                               last_modified=last_modified, last_error=None)
             self.event(po_id, job_id, exc.args[1] if len(exc.args) > 1 else None, "info", "po.skipped",
                        f"Skipped: {exc.args[0]}", exc.args[2] if len(exc.args) > 2 else None)
         except Exception as exc:  # noqa: BLE001 - every failure is recorded and alerted
@@ -630,7 +631,7 @@ class Processor:
                 self.stats["completed"] += 1
                 self.event(po_id, job_id, ref, "info", "order.completed", message, {"order_id": order_id})
 
-        self.db.upsert(po_id, job_id, state="done", last_error=None)
+        self.db.upsert(po_id, job_id, state="done", last_error=None, skip_reason=None)
         self.event(po_id, job_id, ref, "info", "po.done",
                    f"Finished: 3PL transaction {order_id}, {'Open (short stock)' if completion == 'open_short' else 'Completed'}")
 

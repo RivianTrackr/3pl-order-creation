@@ -369,7 +369,8 @@ def create_app(boot: Bootstrap) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def dashboard(request: Request, state: Optional[str] = None, q: str = "", db: Database = Depends(get_db)):
         values = setting_values(db, box)
-        if state not in (None, "", "done", "problems", "waiting", "open_short", "skipped", "dismissed", "changed"):
+        if state not in (None, "", "done", "problems", "waiting", "held", "open_short", "skipped", "dismissed",
+                         "changed"):
             state = None
         checklist = [
             ("Settings complete", not missing_required(values), "/settings"),

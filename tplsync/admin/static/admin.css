@@ -616,7 +616,11 @@ tr.row-link[data-href] { cursor: pointer; }
 /* Invites */
 .login-foot { margin: 16px 0 0; text-align: center; font-size: 13px; }
 .email-edit { display: flex; gap: 2px; align-items: center; margin-top: 4px; max-width: 280px; }
-.email-edit .input-sm { min-width: 0; flex: 1; padding: 4px 8px; }
+.email-edit .input-sm { min-width: 200px; flex: 1; padding: 4px 8px; }
 .manual-password { margin-top: 10px; font-size: 13px; }
 .manual-password summary { cursor: pointer; color: var(--text-secondary); }
 .manual-password .field { margin-top: 10px; max-width: 320px; }
+.users-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.users-layout > .card { margin-bottom: 0; }
+.users-layout > .card:last-child { max-width: 560px; }
+.users-layout + .card { margin-top: 20px; }
