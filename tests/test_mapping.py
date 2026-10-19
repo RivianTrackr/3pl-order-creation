@@ -176,3 +176,23 @@ def test_allowed_skus_are_included_without_inv_or_od():
     assert dict(order_lines(po, "INV|OD")) == {"SHIRT-INV": 3}
     lines = order_lines(po, "INV|OD", frozenset({"cent037", "boxnewhirekit1"}))
     assert dict(lines) == {"CENT037": 2, "boxnewhirekit1": 1, "SHIRT-INV": 3}
+
+
+def test_sku_lines_under_different_products_in_one_po():
+    """PO 77828-3: an on-demand vest whose quantity is on the header's Navy/Large line, and an inventory polo
+    whose quantity is on its own product line, each followed by its own SKU line."""
+    from tplsync.mapping import order_lines
+    po = {"line_items": [
+        {"line_id": 1, "parent_id": 0, "type": "Comment", "sku": "", "quantity": 0, "description": "ON DEMAND FROM JUST INK"},
+        {"line_id": 2, "parent_id": None, "type": "Comment", "sku": "TM18501", "quantity": 0,
+         "description": "Men's Tyndall Poly Microfleece Vest"},
+        {"line_id": 3, "parent_id": None, "type": "Comment", "sku": "", "quantity": 0, "description": "SKU: BAL513OD-3"},
+        {"line_id": 4, "parent_id": 1, "type": "Color", "sku": "", "quantity": 0, "description": "Navy"},
+        {"line_id": 5, "parent_id": 4, "type": "Size", "sku": "", "quantity": 1, "description": "Large"},
+        {"line_id": 6, "parent_id": 0, "type": "Comment", "sku": "", "quantity": 0, "description": "INVENTORY\t"},
+        {"line_id": 7, "parent_id": None, "type": "Comment", "sku": "ME0XK00E", "quantity": 1,
+         "description": "Peter Millar Men's Performance Solid Jersey Polo -  LRG - Navy"},
+        {"line_id": 8, "parent_id": None, "type": "Comment", "sku": "", "quantity": 0,
+         "description": "SKU: BAL528INV-59838-24227"},
+    ]}
+    assert dict(order_lines(po, "INV|OD")) == {"BAL513OD-3": 1, "BAL528INV-59838-24227": 1}

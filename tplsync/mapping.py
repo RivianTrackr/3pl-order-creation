@@ -38,6 +38,19 @@ def tagged_sku(line: dict) -> Optional[str]:
     return match.group(1).strip() if match else None
 
 
+# Lines that describe a product's variants or decoration rather than a product.
+DETAIL_TYPES = {"color", "size", "productcomment", "decorationmethod", "decorationcomment"}
+
+
+def _product_above(items: List[dict], index: int) -> Optional[dict]:
+    """The nearest line above items[index] that is a product (not a SKU line or a colour/size/decoration line)."""
+    for line in reversed(items[:index]):
+        if tagged_sku(line) or str(line.get("type") or "").replace(" ", "").casefold() in DETAIL_TYPES:
+            continue
+        return line
+    return None
+
+
 def order_lines(po: dict, sku_pattern: str, allowed=frozenset()) -> "OrderedDict[str, float]":
     """SKU -> quantity for the PO lines that belong in 3PL Central.
 
@@ -88,6 +101,13 @@ def order_lines(po: dict, sku_pattern: str, allowed=frozenset()) -> "OrderedDict
         if not sku or not wanted(sku):
             continue
         qty = _qty(li.get("quantity"))
+        product = _product_above(items, index)
+        if qty <= 0 and product is not None and _qty(product.get("quantity")) > 0 \
+                and not leaves(product.get("line_id")) and product.get("line_id") not in claimed:
+            # The product line right above the SKU line carries the quantity itself
+            # (e.g. "Peter Millar Polo" qty 1, then "SKU: BAL528INV-59838-24227").
+            claimed.add(product.get("line_id"))
+            qty = _qty(product.get("quantity"))
         if qty <= 0:
             # The SKU belongs to the nearest group above it: a top-level line whose quantity is either
             # its own or spread over its Color/Size lines ("ON DEMAND FROM ..." headers work this way).
