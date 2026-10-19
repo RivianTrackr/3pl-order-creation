@@ -86,14 +86,26 @@
   <p class="card-note">{{ rows | length }} result{{ '' if rows | length == 1 else 's' }} for “{{ q }}”{% if state %} in {{ state.replace('_', ' ') }}{% endif %}. <a href="/{{ '?state=' ~ state if state }}">Clear search</a></p>
   {% endif %}
   {% if rows %}
+  {% set selectable = can_edit and rows | selectattr('state', 'in', ['failed', 'error', 'dismissed', 'skipped', 'waiting', 'held']) | list %}
+  {% if selectable %}
+  <form method="post" action="/po/bulk" id="bulk-form" class="bulk-bar" hidden
+        data-confirm="Apply this to the selected POs?">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="state" value="{{ state }}">
+    <span class="bulk-count" data-bulk-count>0 selected</span>
+    <button class="btn btn-secondary btn-sm" name="action" value="retry"><i class="fa-solid fa-rotate-right"></i> Retry / process selected</button>
+    <button class="btn btn-danger btn-sm" name="action" value="dismiss"><i class="fa-solid fa-ban"></i> Dismiss selected</button>
+  </form>
+  {% endif %}
   <div class="table-wrap">
     <table class="table table-stack">
       <thead>
-        <tr><th>Reference</th><th>Client</th><th>Status</th><th>3PL order</th><th>Details</th><th>Updated</th><th><span class="sr-only">Actions</span></th></tr>
+        <tr>{% if selectable %}<th class="check-col"><input type="checkbox" data-bulk-all aria-label="Select all"></th>{% endif %}<th>Reference</th><th>Client</th><th>Status</th><th>3PL order</th><th>Details</th><th>Updated</th><th><span class="sr-only">Actions</span></th></tr>
       </thead>
       <tbody>
         {% for r in rows %}
         <tr>
+          {% if selectable %}<td class="check-col">{% if r.state in ('failed', 'error', 'dismissed', 'skipped', 'waiting', 'held') %}<input type="checkbox" name="po_ids" value="{{ r.po_id }}" form="bulk-form" data-bulk-item aria-label="Select {{ r.reference or r.po_id }}">{% endif %}</td>{% endif %}
           <td data-label="Reference" class="nowrap"><a class="mono strong" href="/po/{{ r.po_id }}">{{ r.reference or ('Job ' ~ r.job_id) }}</a><div class="cell-meta">PO id {{ r.po_id }}{% if r.note_count %} · <a href="/po/{{ r.po_id }}#notes" title="{{ r.note_count }} note{{ '' if r.note_count == 1 else 's' }}"><i class="fa-solid fa-comment"></i> {{ r.note_count }}</a>{% endif %}</div></td>
           <td data-label="Client" class="client-col">{{ r.client_display or '—' }}</td>
           <td data-label="Status">{{ m.po_status(r) }}</td>

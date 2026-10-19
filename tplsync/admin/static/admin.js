@@ -103,3 +103,23 @@ document.querySelectorAll("input[data-filter-rows]").forEach(function (input) {
     if (empty) empty.hidden = shown !== 0;
   });
 });
+
+// Bulk actions on the dashboard: tick POs, then Retry or Dismiss them together.
+(function () {
+  var form = document.getElementById("bulk-form");
+  if (!form) return;
+  var items = Array.prototype.slice.call(document.querySelectorAll("[data-bulk-item]"));
+  var all = document.querySelector("[data-bulk-all]");
+  var count = form.querySelector("[data-bulk-count]");
+  function update() {
+    var n = items.filter(function (i) { return i.checked; }).length;
+    form.hidden = n === 0;
+    count.textContent = n + " selected";
+    if (all) { all.checked = n > 0 && n === items.length; all.indeterminate = n > 0 && n < items.length; }
+  }
+  items.forEach(function (i) { i.addEventListener("change", update); });
+  if (all) all.addEventListener("change", function () {
+    items.forEach(function (i) { i.checked = all.checked; });
+    update();
+  });
+})();

@@ -294,6 +294,30 @@ def create_app(boot: Bootstrap) -> FastAPI:
         from_detail = urlparse(request.headers.get("referer", "")).path == f"/po/{po_id}"
         return redirect(f"/po/{po_id}" if from_detail else "/", f"PO {po_id} will be processed on the next run.")
 
+    @app.post("/po/bulk", dependencies=[Depends(csrf_protect)])
+    async def po_bulk(request: Request, db: Database = Depends(get_db)):
+        form = await request.form()
+        action = form.get("action")
+        ids = [int(x) for x in form.getlist("po_ids") if str(x).isdigit()][:500]
+        allowed = {"retry": ("failed", "error", "dismissed", "skipped"), "dismiss": ("failed", "error", "waiting", "held")}
+        if action not in allowed or not ids:
+            return redirect("/", "Tick at least one PO first.", "error")
+        done = 0
+        for po_id in ids:
+            row = db.get(po_id)
+            if row is None or row["state"] not in allowed[action]:
+                continue
+            if action == "retry":
+                db.reset(po_id)
+            else:
+                db.dismiss(po_id, username(request))
+            done += 1
+        db.audit(username(request), f"po.bulk_{action}", f"{done} of {len(ids)}: {', '.join(map(str, ids[:50]))}")
+        skipped = len(ids) - done
+        verb = "will be processed on the next run" if action == "retry" else "dismissed"
+        note = f" {skipped} couldn't be {'retried' if action == 'retry' else 'dismissed'} in their current state." if skipped else ""
+        return redirect(f"/?state={form.get('state') or ''}", f"{done} PO{'s' if done != 1 else ''} {verb}.{note}")
+
     @app.post("/po/{po_id}/notes", dependencies=[Depends(csrf_protect)])
     def po_add_note(request: Request, po_id: int, text: str = Form(""), db: Database = Depends(get_db)):
         text = text.strip()

@@ -509,3 +509,18 @@ def test_notes_on_a_po(client, boot):
     note = db.notes(901)[0]
     client.post(f"/po/901/notes/{note['id']}/delete", data={"_csrf": token})
     assert db.notes(901) == []
+
+
+def test_bulk_retry_and_dismiss(client, boot):
+    login(client)
+    db = Database(boot.db_path)
+    for po_id, state in ((1001, "error"), (1002, "failed"), (1003, "held"), (1004, "done")):
+        db.upsert(po_id, 79000 + po_id, state=state, reference=f"{po_id}-1", attempts=3)
+    page = client.get("/").text
+    assert 'id="bulk-form"' in page and 'value="1001" form="bulk-form"' in page and 'value="1004" form="bulk-form"' not in page
+    token = csrf(client, "/")
+    resp = client.post("/po/bulk", data={"_csrf": token, "action": "dismiss", "po_ids": ["1001", "1003", "1004"]})
+    assert "2 POs dismissed. 1 couldn" in resp.text
+    assert db.get(1001)["state"] == "dismissed" and db.get(1003)["state"] == "dismissed" and db.get(1004)["state"] == "done"
+    client.post("/po/bulk", data={"_csrf": token, "action": "retry", "po_ids": ["1001", "1002"]})
+    assert db.get(1001)["state"] == "error" and db.get(1002)["state"] == "error" and db.get(1002)["attempts"] == 0
