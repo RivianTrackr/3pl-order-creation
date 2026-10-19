@@ -14,11 +14,22 @@
     <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-users"></i> Users</h2></div>
     <div class="table-wrap">
       <table class="table">
-        <thead><tr><th>Username</th><th>Access</th><th>Last sign-in</th><th></th></tr></thead>
+        <thead><tr><th>User</th><th>Access</th><th>Last sign-in</th><th></th></tr></thead>
         <tbody>
           {% for u in users %}
           <tr>
-            <td class="strong">{{ u.username }}{% if u.id == user.id %} <span class="badge badge-muted">You</span>{% endif %}</td>
+            <td>
+              <div class="strong">{{ u.username }}{% if u.id == user.id %} <span class="badge badge-muted">You</span>{% endif %}</div>
+              <form method="post" action="/users/{{ u.id }}/email" class="email-edit">
+                <input type="hidden" name="_csrf" value="{{ csrf }}">
+                <input class="input input-sm" type="email" name="email" value="{{ u.email or '' }}" placeholder="Add email" aria-label="Email for {{ u.username }}">
+                <button class="btn btn-ghost btn-sm" title="Save email"><i class="fa-solid fa-check"></i><span class="sr-only">Save</span></button>
+              </form>
+              {% set inv = invites.get(u.id) %}
+              {% if not u.last_login_at and inv %}
+              <div class="cell-meta">{% if inv.expired %}<span class="text-error">Invite expired</span>{% else %}Invite sent · expires {{ localtime(inv.expires_at, short=True) }}{% endif %}</div>
+              {% endif %}
+            </td>
             <td>
               {% if u.id != user.id %}
               <form method="post" action="/users/{{ u.id }}/role" class="inline-form no-margin">
@@ -32,6 +43,12 @@
             </td>
             <td class="nowrap">{{ localtime(u.last_login_at) or 'Never' }}</td>
             <td class="row-actions">
+              {% if u.email and email_ready %}
+              <form method="post" action="/users/{{ u.id }}/send-link" data-confirm="Email {{ u.username }} a {{ 'password reset link' if u.last_login_at else 'new invite' }}?">
+                <input type="hidden" name="_csrf" value="{{ csrf }}">
+                <button class="btn btn-secondary btn-sm" title="{{ 'Email a password reset link' if u.last_login_at else 'Email a new invite link' }}"><i class="fa-solid fa-paper-plane"></i> {{ 'Reset link' if u.last_login_at else 'Send invite' }}</button>
+              </form>
+              {% endif %}
               {% if u.id != user.id %}
               <form method="post" action="/users/{{ u.id }}/delete" data-confirm="Delete {{ u.username }}?">
                 <input type="hidden" name="_csrf" value="{{ csrf }}">
@@ -49,11 +66,17 @@
       <h3 class="subhead">Add user</h3>
       <div class="form-grid">
         <div class="field"><label for="new_username">Username</label><input class="input" id="new_username" name="new_username" autocomplete="off" required></div>
-        <div class="field"><label for="new_password">Password</label><input class="input" type="password" id="new_password" name="new_password" autocomplete="new-password" minlength="12" required></div>
+        <div class="field"><label for="new_email">Email</label><input class="input" type="email" id="new_email" name="new_email" autocomplete="off" placeholder="name@ipromo.com"></div>
         <div class="field"><label for="role">Access</label>
           <select class="input" id="role" name="role"><option value="admin">Admin</option><option value="viewer">View only</option></select></div>
       </div>
-      <div class="form-actions"><button class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add user</button></div>
+      <p class="field-description">{% if email_ready %}They'll get an email with a link to choose their own password (works once, for 48 hours).{% else %}Email isn't set up yet (Settings → Alerts), so set a password for them below.{% endif %}</p>
+      <details class="manual-password" {{ 'open' if not email_ready }}>
+        <summary>Or set a password for them now</summary>
+        <div class="field"><label for="new_password">Password</label><input class="input" type="password" id="new_password" name="new_password" autocomplete="new-password" minlength="12"></div>
+        <p class="field-description">At least 12 characters. If you set one, no invite is sent; share it with them yourself.</p>
+      </details>
+      <div class="form-actions"><button class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> {{ 'Add and invite' if email_ready else 'Add user' }}</button></div>
     </form>
   </section>
   {% endif %}

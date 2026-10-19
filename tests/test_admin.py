@@ -570,3 +570,110 @@ def test_system_page_is_admins_only(client, boot, monkeypatch, tmp_path):
     Database(boot.db_path).create_user("ps-team", hash_password(PASSWORD), "viewer")
     client.post("/login", data={"username": "ps-team", "password": PASSWORD})
     assert client.get("/settings/system").status_code == 403
+
+
+@pytest.fixture
+def mailbox(boot, monkeypatch):
+    """SendGrid set up, and every email captured instead of sent (still recorded in the email log)."""
+    from tplsync.notify import Notifier
+    db = Database(boot.db_path)
+    db.set_setting("SENDGRID_API_KEY", boot.secret_box().encrypt("SG.test"), "test")
+    db.set_setting("EMAIL_FROM", "ops@example.com", "test")
+    sent = []
+
+    def fake_send(self, subject, lines, po_id=None, html_body=None):
+        sent.append({"to": self.email_to, "subject": subject, "text": "\n".join(lines), "html": html_body})
+        self._record(subject, "\n".join(lines), "sent", None, po_id)
+    monkeypatch.setattr(Notifier, "send", fake_send)
+    return sent
+
+
+def _link(email):
+    return re.search(r"(/set-password\?token=[A-Za-z0-9_-]+)", email["text"]).group(1)
+
+
+def test_invited_user_sets_their_own_password(client, boot, mailbox):
+    login(client)
+    db = Database(boot.db_path)
+    resp = client.post("/users/create", data={"_csrf": csrf(client, "/users"), "new_username": "maria",
+                                              "new_email": "maria@example.com", "role": "viewer"})
+    assert "Invited maria (view only)" in resp.text
+    email = mailbox[-1]
+    assert email["to"] == "maria@example.com" and "maria" in email["text"] and "Set your password" in email["html"]
+    assert "token=***" in db.list_emails(5)[0]["body"]              # the link is masked in the email log
+    assert "Invite sent" in client.get("/users").text
+
+    client.post("/logout", data={"_csrf": csrf(client, "/users")})
+    page = client.get(_link(email))
+    assert page.status_code == 200 and "Choose a password for" in page.text
+    token = _link(email).split("=", 1)[1]
+    bad = client.post("/set-password", data={"token": token, "new_password": "short", "confirm_password": "short"})
+    assert bad.status_code == 400 and "at least 12" in bad.text
+    done = client.post("/set-password", data={"token": token, "new_password": "a long new password 1",
+                                              "confirm_password": "a long new password 1"})
+    assert "Password set for maria" in done.text
+    assert client.get(_link(email)).status_code == 400              # links work once
+    resp = client.post("/login", data={"username": "maria", "password": "a long new password 1"},
+                       follow_redirects=False)
+    assert resp.status_code == 303 and resp.headers["location"] == "/"
+
+
+def test_forgot_password_never_reveals_whether_an_account_exists(client, boot, mailbox):
+    db = Database(boot.db_path)
+    admin = db.get_user_by_name("admin")
+    db.set_email(admin["id"], "admin@example.com")
+    for who in ("nobody", "nobody@example.com"):
+        page = client.post("/forgot-password", data={"login": who}).text
+        assert "If that account has an email address" in page
+    assert mailbox == []
+    page = client.post("/forgot-password", data={"login": "ADMIN@example.com"}).text
+    assert "If that account has an email address" in page
+    assert mailbox[-1]["to"] == "admin@example.com" and mailbox[-1]["subject"] == "[3PL] Reset your password"
+    token = _link(mailbox[-1]).split("=", 1)[1]
+    client.post("/set-password", data={"token": token, "new_password": "another long password",
+                                       "confirm_password": "another long password"})
+    assert login(client, "another long password").headers["location"] == "/"
+
+
+def test_forgot_password_is_rate_limited(client, boot, mailbox):
+    for _ in range(5):
+        client.post("/forgot-password", data={"login": "nobody"})
+    assert client.post("/forgot-password", data={"login": "nobody"}).status_code == 429
+
+
+def test_expired_links_dont_work(client, boot, mailbox):
+    db = Database(boot.db_path)
+    token = db.create_password_token(db.get_user_by_name("admin")["id"], "reset", 1)
+    db.conn.execute("UPDATE password_tokens SET expires_at = '2000-01-01T00:00:00'")
+    db.conn.commit()
+    page = client.get(f"/set-password?token={token}")
+    assert page.status_code == 400 and "doesn" in page.text and "Email me a new link" in page.text
+
+
+def test_admin_can_resend_an_invite_or_send_a_reset_link(client, boot, mailbox):
+    login(client)
+    db = Database(boot.db_path)
+    db.create_user("ps-team", hash_password(PASSWORD), "viewer")
+    viewer = db.get_user_by_name("ps-team")
+    token = csrf(client, "/users")
+    client.post(f"/users/{viewer['id']}/email", data={"_csrf": token, "email": "ps@example.com"})
+    assert db.get_user(viewer["id"])["email"] == "ps@example.com"
+    client.post(f"/users/{viewer['id']}/send-link", data={"_csrf": token})
+    assert mailbox[-1]["subject"] == "[3PL] You've been invited to 3PL Order Sync"     # never signed in: invite
+    db.conn.execute("UPDATE users SET last_login_at = '2026-10-19T10:00:00' WHERE id = ?", (viewer["id"],))
+    db.conn.commit()
+    client.post(f"/users/{viewer['id']}/send-link", data={"_csrf": token})
+    assert mailbox[-1]["subject"] == "[3PL] Reset your password"
+
+
+def test_without_email_set_up_a_password_is_required(client, boot):
+    login(client)
+    resp = client.post("/users/create", data={"_csrf": csrf(client, "/users"), "new_username": "maria",
+                                              "new_email": "maria@example.com"})
+    assert "invite couldn" in resp.text and "Email isn" in resp.text
+    assert "Email isn't set up yet" in client.get("/users").text or "Email isn&#39;t set up yet" in client.get("/users").text
+
+
+def test_tokens_are_masked_in_logs():
+    from tplsync.runlog import redact
+    assert redact("GET /set-password?token=abcDEF123_-xyz HTTP/1.1") == "GET /set-password?token=*** HTTP/1.1"

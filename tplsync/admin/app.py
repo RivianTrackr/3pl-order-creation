@@ -1,8 +1,10 @@
 """Admin web UI: settings, 3PL clients, shipping rules, PO activity, users."""
 
 import json
+import logging
 import os
 import re
+import secrets
 import select
 import subprocess
 import sys
@@ -12,7 +14,7 @@ from typing import Optional
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -34,7 +36,8 @@ from .auth import (FLASH_COOKIE, SESSION_COOKIE, SESSION_MAX_AGE, LoginThrottle,
                    password_problem, verify_login)
 
 HERE = Path(__file__).resolve().parent
-PUBLIC_PATHS = ("/login", "/static/", "/healthz")
+PUBLIC_PATHS = ("/login", "/static/", "/healthz", "/set-password", "/forgot-password")
+INVITE_HOURS, RESET_HOURS = 48, 1
 # What a read-only (viewer) user may change: their own password and PO notes.
 VIEWER_POSTS = re.compile(r"^/(logout|account/password|po/\d+/notes(/\d+/delete)?)$")
 VIEWER_BLOCKED_PAGES = ("/settings",)
@@ -71,9 +74,15 @@ STATE_LABELS = {
 def create_app(boot: Bootstrap) -> FastAPI:
     app = FastAPI(title="3PL Order Sync", docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+
+    from ..runlog import AccessLogFilter
+    access_log = logging.getLogger("uvicorn.access")     # mask invite/reset tokens in request lines
+    if not any(isinstance(f, AccessLogFilter) for f in access_log.filters):
+        access_log.addFilter(AccessLogFilter())
     templates = Jinja2Templates(directory=HERE / "templates")
     signer = Signer(boot.admin_secret_key)
     throttle = LoginThrottle()
+    reset_throttle = LoginThrottle()     # forgot-password requests, per IP
     box = boot.secret_box()
 
     # --- per-request helpers --------------------------------------------------
@@ -258,6 +267,102 @@ def create_app(boot: Bootstrap) -> FastAPI:
         response.delete_cookie(SESSION_COOKIE, path="/")
         response.headers["x-logout"] = "1"
         return response
+
+    # --- invites and password resets -----------------------------------------------
+
+    def _base_url(request: Request, values: dict) -> str:
+        return (values.get("ADMIN_URL") or str(request.base_url)).rstrip("/")
+
+    def _local_expiry(values: dict, hours: int) -> str:
+        at = datetime.now(timezone.utc) + timedelta(hours=hours)
+        return at.astimezone(_zone(values.get("DISPLAY_TIMEZONE"))).strftime("%b %-d, %-I:%M %p")
+
+    def _account_email(db: Database, to: str, subject: str, lines: list, html_body: str) -> Optional[str]:
+        """Send an invite or reset email. Returns an error message, or None when sent. The link is masked in
+        the email log, so nobody can copy another user's reset link from the Logs page."""
+        from ..runlog import redact
+        values = setting_values(db, box)
+        if not (values.get("SENDGRID_API_KEY") and values.get("EMAIL_FROM")):
+            return "Email isn't set up yet (Settings > Alerts > SendGrid)."
+        notifier = Notifier(values["SENDGRID_API_KEY"], values["EMAIL_FROM"], to)
+        notifier.recorder = lambda subj, rcpt, body, status, error, po_id: db.add_email(
+            None, None, subj, rcpt, redact(body), status, error)
+        try:
+            notifier.send(subject, lines, html_body=html_body)
+        except Exception as exc:  # noqa: BLE001
+            return f"SendGrid didn't accept the email ({str(exc)[:160]})."
+        return None
+
+    def _send_invite(request: Request, db: Database, user, invited_by: str) -> Optional[str]:
+        values = setting_values(db, box)
+        token = db.create_password_token(user["id"], "invite", INVITE_HOURS)
+        link = f"{_base_url(request, values)}/set-password?token={token}"
+        access = "View only" if user["role"] == "viewer" else "Admin"
+        expires = _local_expiry(values, INVITE_HOURS)
+        lines = [f"Hi {user['username']},", "", f"{invited_by} added you to 3PL Order Sync with {access.lower()} "
+                 f"access. Choose a password here (the link works once and expires {expires}):", "", link, "",
+                 f"Your username is: {user['username']}"]
+        return _account_email(db, user["email"], "[3PL] You've been invited to 3PL Order Sync", lines,
+                              emails.invite_email(link=link, username=user["username"], access=access,
+                                                  invited_by=invited_by, expires=expires))
+
+    def _send_reset(base_url: str, db_path: str, user_id: int) -> None:
+        """Runs after the response (forgot password), so the page answers in the same time either way."""
+        db = Database(db_path)
+        try:
+            user = db.get_user(user_id)
+            values = setting_values(db, box)
+            token = db.create_password_token(user_id, "reset", RESET_HOURS)
+            link = f"{base_url}/set-password?token={token}"
+            expires = _local_expiry(values, RESET_HOURS)
+            lines = [f"Hi {user['username']},", "", "Someone asked to reset your 3PL Order Sync password. Choose a "
+                     f"new one here (the link works once and expires {expires}):", "", link, "",
+                     "If you didn't ask for this, ignore this email; your password stays the same."]
+            _account_email(db, user["email"], "[3PL] Reset your password", lines,
+                           emails.reset_email(link=link, username=user["username"], expires=expires))
+        finally:
+            db.close()
+
+    @app.get("/forgot-password", response_class=HTMLResponse)
+    def forgot_page(request: Request, db: Database = Depends(get_db)):
+        return render(request, db, "forgot_password.html", sent=False)
+
+    @app.post("/forgot-password", response_class=HTMLResponse)
+    def forgot_submit(request: Request, background: BackgroundTasks, login: str = Form(""),
+                      db: Database = Depends(get_db)):
+        ip = request.client.host if request.client else "unknown"
+        if reset_throttle.blocked(ip, "reset"):
+            return render(request, db, "forgot_password.html", status_code=429, sent=False,
+                          error="Too many requests. Try again in 15 minutes.")
+        reset_throttle.fail(ip, "reset")
+        login = login.strip()
+        user = db.get_user_by_name(login) or (db.get_user_by_email(login) if "@" in login else None)
+        if user and user["email"]:
+            background.add_task(_send_reset, _base_url(request, setting_values(db, box)), boot.db_path, user["id"])
+            db.audit(user["username"], "user.reset_requested", ip)
+        # Same answer whether or not the account exists, so this page can't be used to find usernames.
+        return render(request, db, "forgot_password.html", sent=True)
+
+    @app.get("/set-password", response_class=HTMLResponse)
+    def set_password_page(request: Request, token: str = "", db: Database = Depends(get_db)):
+        row = db.password_token(token)
+        return render(request, db, "set_password.html", token=token if row else "", row=row,
+                      status_code=200 if row else 400)
+
+    @app.post("/set-password", response_class=HTMLResponse)
+    def set_password_submit(request: Request, token: str = Form(""), new_password: str = Form(""),
+                            confirm_password: str = Form(""), db: Database = Depends(get_db)):
+        row = db.password_token(token)
+        if row is None:
+            return render(request, db, "set_password.html", token="", row=None, status_code=400)
+        problem = password_problem(new_password) or (
+            "The two passwords don't match." if new_password != confirm_password else None)
+        if problem:
+            return render(request, db, "set_password.html", token=token, row=row, error=problem, status_code=400)
+        db.set_password(row["user_id"], hash_password(new_password))     # also signs out other sessions
+        db.use_password_token(row["id"])
+        db.audit(row["username"], "user.password_set", row["purpose"])
+        return redirect("/login", f"Password set for {row['username']}. Sign in with it now.")
 
     # --- dashboard ------------------------------------------------------------------
 
@@ -1035,23 +1140,77 @@ def create_app(boot: Bootstrap) -> FastAPI:
 
     @app.get("/users", response_class=HTMLResponse)
     def users_page(request: Request, db: Database = Depends(get_db)):
-        return render(request, db, "users.html", users=db.list_users(), audit=db.audit_entries(100))
+        now = utcnow()
+        invites = {uid: {"expires_at": r["expires_at"], "expired": r["expires_at"] <= now or bool(r["used_at"])}
+                   for uid, r in db.invites().items()}
+        values = setting_values(db, box)
+        return render(request, db, "users.html", users=db.list_users(), audit=db.audit_entries(100), invites=invites,
+                      email_ready=bool(values.get("SENDGRID_API_KEY") and values.get("EMAIL_FROM")))
 
     @app.post("/users/create", dependencies=[Depends(csrf_protect)])
     def user_create(request: Request, db: Database = Depends(get_db), new_username: str = Form(...),
-                    new_password: str = Form(...), role: str = Form("admin")):
-        new_username = new_username.strip()
+                    new_email: str = Form(""), new_password: str = Form(""), role: str = Form("admin")):
+        new_username, new_email = new_username.strip(), new_email.strip()
         if not re.fullmatch(r"[A-Za-z0-9_.@-]{3,60}", new_username):
             return redirect("/users", "Usernames are 3-60 letters, numbers or . _ @ -", "error")
-        problem = password_problem(new_password)
-        if problem:
-            return redirect("/users", problem, "error")
         if db.get_user_by_name(new_username):
             return redirect("/users", f"{new_username} already exists.", "error")
+        if new_email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", new_email):
+            return redirect("/users", "That email address doesn't look right.", "error")
+        if new_email and db.get_user_by_email(new_email):
+            return redirect("/users", f"Another user already has {new_email}.", "error")
+        if not new_password and not new_email:
+            return redirect("/users", "Enter their email to send an invite, or set a password for them.", "error")
+        if new_password and password_problem(new_password):
+            return redirect("/users", password_problem(new_password), "error")
         role = "viewer" if role == "viewer" else "admin"
-        db.create_user(new_username, hash_password(new_password), role)
-        db.audit(username(request), "user.create", f"{new_username} ({role})")
-        return redirect("/users", f"Created {new_username} ({'view only' if role == 'viewer' else 'admin'}).")
+        # Invited users get an unguessable placeholder password until they choose their own.
+        db.create_user(new_username, hash_password(new_password or secrets.token_urlsafe(32)), role)
+        user = db.get_user_by_name(new_username)
+        db.set_email(user["id"], new_email or None)
+        access = "view only" if role == "viewer" else "admin"
+        db.audit(username(request), "user.create", f"{new_username} ({role}{', invited' if not new_password else ''})")
+        if new_password:
+            return redirect("/users", f"Created {new_username} ({access}).")
+        error = _send_invite(request, db, db.get_user(user["id"]), username(request))
+        if error:
+            return redirect("/users", f"Created {new_username}, but the invite couldn't be sent: {error} Use "
+                                      f"“Send invite” once that's fixed.", "error")
+        return redirect("/users", f"Invited {new_username} ({access}). The link in their email works for "
+                                  f"{INVITE_HOURS} hours.")
+
+    @app.post("/users/{user_id}/email", dependencies=[Depends(csrf_protect)])
+    def user_email(request: Request, user_id: int, email: str = Form(""), db: Database = Depends(get_db)):
+        target = db.get_user(user_id)
+        if not target:
+            raise HTTPException(404, "User not found.")
+        email = email.strip()
+        if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            return redirect("/users", "That email address doesn't look right.", "error")
+        other = db.get_user_by_email(email) if email else None
+        if other and other["id"] != user_id:
+            return redirect("/users", f"Another user already has {email}.", "error")
+        db.set_email(user_id, email or None)
+        db.audit(username(request), "user.email", f"{target['username']}: {email or '(removed)'}")
+        return redirect("/users", f"Saved {target['username']}'s email.")
+
+    @app.post("/users/{user_id}/send-link", dependencies=[Depends(csrf_protect)])
+    def user_send_link(request: Request, user_id: int, db: Database = Depends(get_db)):
+        target = db.get_user(user_id)
+        if not target:
+            raise HTTPException(404, "User not found.")
+        if not target["email"]:
+            return redirect("/users", f"Add an email for {target['username']} first.", "error")
+        if target["last_login_at"]:                  # has signed in before: a reset link
+            _send_reset(_base_url(request, setting_values(db, box)), boot.db_path, user_id)
+            sent = "password reset link"
+        else:
+            error = _send_invite(request, db, target, username(request))
+            if error:
+                return redirect("/users", error, "error")
+            sent = "new invite"
+        db.audit(username(request), "user.send_link", f"{target['username']}: {sent}")
+        return redirect("/users", f"Emailed {target['username']} a {sent}.")
 
     @app.post("/users/{user_id}/role", dependencies=[Depends(csrf_protect)])
     def user_role(request: Request, user_id: int, role: str = Form(...), db: Database = Depends(get_db)):

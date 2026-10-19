@@ -10,6 +10,7 @@ _REDACTIONS = (
     (re.compile(r"(?i)(x-api-key|api[_-]?key|client_secret|access_token|password)(['\"]?\s*[:=]\s*['\"]?)[^\s'\",}]+"),
      r"\1\2***"),
     (re.compile(r"SG\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"), "SG.***"),
+    (re.compile(r"([?&]token=)[A-Za-z0-9_-]+"), r"\1***"),                 # invite / reset links
 )
 
 
@@ -30,6 +31,17 @@ class RedactingFilter(logging.Filter):
         clean = redact(message)
         if clean != message:
             record.msg, record.args = clean, ()
+        return True
+
+
+class AccessLogFilter(logging.Filter):
+    """Masks invite/reset tokens in uvicorn's access log (the request path is its third argument)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) >= 3:
+            args = list(record.args)
+            args[2] = redact(str(args[2]))
+            record.args = tuple(args)
         return True
 
 

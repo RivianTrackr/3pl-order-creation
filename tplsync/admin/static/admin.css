@@ -612,3 +612,11 @@ tr.row-link[data-href] { cursor: pointer; }
 .change-list li:last-child { border-bottom: 0; }
 .facts .fact-wide { grid-column: span 2; }
 @media (max-width: 640px) { .facts .fact-wide { grid-column: auto; } }
+
+/* Invites */
+.login-foot { margin: 16px 0 0; text-align: center; font-size: 13px; }
+.email-edit { display: flex; gap: 2px; align-items: center; margin-top: 4px; max-width: 280px; }
+.email-edit .input-sm { min-width: 0; flex: 1; padding: 4px 8px; }
+.manual-password { margin-top: 10px; font-size: 13px; }
+.manual-password summary { cursor: pointer; color: var(--text-secondary); }
+.manual-password .field { margin-top: 10px; max-width: 320px; }

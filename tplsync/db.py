@@ -1,7 +1,9 @@
 """SQLite storage: PO processing state, settings, clients, shipping rules, admin users."""
 
+import hashlib
 import json
 import re
+import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
@@ -37,6 +39,15 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     shipped_at     TEXT,
     ship_checked_at TEXT,
     updated_at     TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS password_tokens (    -- invite and reset links; only a hash of the token is kept
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    token_hash  TEXT NOT NULL UNIQUE,
+    purpose     TEXT NOT NULL,              -- invite | reset
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    used_at     TEXT
 );
 CREATE TABLE IF NOT EXISTS po_notes (           -- the team's comments on a PO
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -209,6 +220,7 @@ class Database:
         self._add_column("purchase_orders", "job_submitted_at", "TEXT")
         self._add_column("purchase_orders", "client_name", "TEXT")
         self._add_column("users", "role", "TEXT NOT NULL DEFAULT 'admin'")   # admin | viewer
+        self._add_column("users", "email", "TEXT")
         for column in ("sent_snapshot", "changed_at", "change_summary", "change_signature", "order_status",
                        "tracking_number", "ship_carrier", "shipped_at", "ship_checked_at"):
             self._add_column("purchase_orders", column, "TEXT")
@@ -638,6 +650,42 @@ class Database:
             self.conn.execute("INSERT INTO users(username, password_hash, created_at) VALUES(?, ?, ?)",
                               (username, password_hash, utcnow()))
             self.conn.execute("UPDATE users SET role = ? WHERE username = ?", (role, username))
+
+    def get_user_by_email(self, email: str) -> Optional[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM users WHERE lower(email) = lower(?)", (email.strip(),)).fetchone()
+
+    def set_email(self, user_id: int, email: Optional[str]) -> None:
+        with self.conn:
+            self.conn.execute("UPDATE users SET email = ? WHERE id = ?", (email or None, user_id))
+
+    def create_password_token(self, user_id: int, purpose: str, hours: int) -> str:
+        """A single-use link token for an invite or a reset. Earlier unused links for the user stop working."""
+        token = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        with self.conn:
+            self.conn.execute("UPDATE password_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL",
+                              (utcnow(), user_id))
+            self.conn.execute(
+                "INSERT INTO password_tokens(user_id, token_hash, purpose, created_at, expires_at) VALUES(?, ?, ?, ?, ?)",
+                (user_id, hashlib.sha256(token.encode()).hexdigest(), purpose, utcnow(),
+                 (now + timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S")))
+        return token
+
+    def password_token(self, token: str) -> Optional[sqlite3.Row]:
+        """The unused, unexpired token row (joined with its user), or None."""
+        return self.conn.execute(
+            "SELECT t.*, u.username, u.role FROM password_tokens t JOIN users u ON u.id = t.user_id "
+            "WHERE t.token_hash = ? AND t.used_at IS NULL AND t.expires_at > ?",
+            (hashlib.sha256((token or "").encode()).hexdigest(), utcnow())).fetchone()
+
+    def use_password_token(self, token_id: int) -> None:
+        with self.conn:
+            self.conn.execute("UPDATE password_tokens SET used_at = ? WHERE id = ?", (utcnow(), token_id))
+
+    def invites(self) -> Dict[int, sqlite3.Row]:
+        """Each user's most recent invite, for the Users page."""
+        rows = self.conn.execute("SELECT * FROM password_tokens WHERE purpose = 'invite' ORDER BY id").fetchall()
+        return {r["user_id"]: r for r in rows}
 
     def set_role(self, user_id: int, role: str) -> None:
         with self.conn:

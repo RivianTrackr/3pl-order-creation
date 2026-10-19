@@ -103,11 +103,13 @@ def button(url: Optional[str], text: str) -> str:
             f'border-radius:8px;">{e(text)}</a></td></tr>')
 
 
-def page(kicker: str, title: str, subtitle: str, head: List[str], body: List[str], footer: str = "") -> str:
+def page(kicker: str, title: str, subtitle: str, head: List[str], body: List[str], footer: str = "",
+         settings_note: bool = True) -> str:
     """The whole email. head: HTML blocks inside the white header card (banner, facts, tiles);
     body: <tr> rows from card() / button() / note_row()."""
     head_html = "".join(f'<tr><td style="padding:8px 0;">{block}</td></tr>' for block in head if block)
-    foot = (footer + "<br>" if footer else "") + "Sent by 3PL Order Sync. Choose which emails go out under Settings &rarr; Emails."
+    foot = (footer + "<br>" if footer else "") + "Sent by 3PL Order Sync." + (
+        " Choose which emails go out under Settings &rarr; Emails." if settings_note else "")
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -257,3 +259,25 @@ def changed_email(*, admin_url: str, po_id: int, job_id: Optional[int], referenc
                                  f'{rows}</ul>', "warning", len(changes)),
             button(po_url(admin_url, po_id), "View this PO")]
     return page("PO changed after sending", reference, _subtitle(client, job_id), head, body)
+
+
+def invite_email(*, link: str, username: str, access: str, invited_by: str, expires: str) -> str:
+    head = [
+        banner("info", "You've been added to 3PL Order Sync",
+               [f"{invited_by} gave you {access.lower()} access. Choose a password to sign in."]),
+        facts([("Username", e(username)), ("Access", e(access)), ("Link expires", e(expires))]),
+    ]
+    body = [button(link, "Set your password"),
+            note_row("The link works once. If it has expired, ask an admin to send a new one.")]
+    return page("Invitation", f"Welcome, {username}", "", head, body,
+                "If you weren't expecting this, you can ignore it.", settings_note=False)
+
+
+def reset_email(*, link: str, username: str, expires: str) -> str:
+    head = [banner("info", "Reset your password", ["Someone (hopefully you) asked to reset the password for this "
+                                                   "account."]),
+            facts([("Username", e(username)), ("Link expires", e(expires))])]
+    body = [button(link, "Choose a new password"),
+            note_row("The link works once. If you didn't ask for this, ignore this email: your password stays the "
+                     "same.")]
+    return page("Password reset", "Reset your password", "", head, body, settings_note=False)
