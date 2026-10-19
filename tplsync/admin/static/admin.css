@@ -553,3 +553,8 @@ tr.row-link[data-href] { cursor: pointer; }
 .notice-action { align-items: center; }
 .notice-action > span { flex: 1; }
 .notice-action form { margin: 0; flex-shrink: 0; }
+.card-attention { border-color: var(--warning-border); }
+.card-attention .card-header { background: var(--warning-bg); }
+.card-attention .card-title i { color: var(--warning); }
+.sku-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.sku-actions form { margin: 0; }

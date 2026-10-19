@@ -425,3 +425,41 @@ def test_shipped_po_shows_a_tracking_link(client, boot):
     page = client.get("/").text
     assert "Shipped" in page and 'href="https://www.ups.com/track?tracknum=1Z0WY6070307889570"' in page
     assert "1Z0WY6070307889570" in client.get("/po/602").text
+
+
+def _carriers(db):
+    import json
+    from datetime import datetime, timezone
+    from tplsync import carriers as cm
+    carriers = cm.parse_carrier_list({"_embedded": {"http://api.3plCentral.com/rels/properties/carrier": [
+        {"name": "UPS", "shipmentServices": [{"code": "03", "description": "UPS Ground"}]}]}})
+    db.set_meta("tpl_carriers", json.dumps({"fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+                                            "carriers": cm.carriers_to_json(carriers)}))
+
+
+def test_unmatched_ship_via_is_listed_with_a_fix(client, boot):
+    login(client)
+    db = Database(boot.db_path)
+    _carriers(db)
+    db.add_event(None, 701, 77950, "77950-1", "error", "shipping.unmatched", "no match",
+                 {"ship_via": "UPS GRD C713X7", "overrides": []})
+    page = client.get("/shipping").text
+    assert "Ship Via that didn" in page and "UPS GRD C713X7" in page and "Create override for “UPS GRD”" in page
+    db.save_shipping_rule(None, ship_via="UPS GRD", carrier="UPS", mode="03", scac_code=None, account=None,
+                          billing_code=None)
+    assert "Ship Via that didn" not in client.get("/shipping").text      # fixed: no longer listed
+
+
+def test_sku_from_a_skipped_po_can_be_allowed_in_one_click(client, boot):
+    login(client)
+    db = Database(boot.db_path)
+    centurion = db.save_client(None, name="Centurion", syncore_group_id="20011", source="manual")
+    db.upsert(702, 77951, state="skipped", reference="77951-1", client_id="20011", client_name="Centurion",
+              skip_reason="no SKUs match 'INV|OD' or the Allowed SKUs list")
+    db.add_event(None, 702, 77951, "77951-1", "info", "po.skipped", "Skipped: no SKUs match",
+                 {"skus_on_po": ["CENT037", "TM18501"]})
+    page = client.get("/skus").text
+    assert "Skipped because no SKU matched" in page and "CENT037" in page and "TM18501" in page
+    client.post("/skus/allow-from-po", data={"_csrf": csrf(client, "/skus"), "po_id": 702, "sku": "CENT037"})
+    assert db.allowed_skus_by_client()[centurion] == {"cent037"}
+    assert db.get(702)["state"] == "error"                                 # will be processed next run

@@ -53,6 +53,31 @@
   </form>
 </section>
 
+{% if unmatched %}
+<section class="card card-attention">
+  <div class="card-header">
+    <h2 class="card-title"><i class="fa-solid fa-triangle-exclamation"></i> Ship Via that didn't match</h2>
+    <span class="muted small">Last 30 days</span>
+  </div>
+  <p class="card-note">These POs couldn't be sent because their Ship Via isn't a carrier and service in 3PL Central. Add an override for each and the POs go through on the next run.</p>
+  <div class="table-wrap">
+    <table class="table table-stack">
+      <thead><tr><th>Ship Via on the PO</th><th>POs</th><th>Latest</th><th><span class="sr-only">Fix</span></th></tr></thead>
+      <tbody>
+        {% for u in unmatched %}
+        <tr>
+          <td data-label="Ship Via" class="mono strong">{{ u.ship_via }}</td>
+          <td data-label="POs">{{ u.pos }}</td>
+          <td data-label="Latest">{% if u.po_id %}<a href="/po/{{ u.po_id }}" class="mono">{{ u.reference or ('PO id ' ~ u.po_id) }}</a>{% endif %} <span class="cell-meta">{{ localtime(u.last_at, short=True) }}</span></td>
+          <td class="row-actions"><a class="btn btn-primary btn-sm" href="/shipping?check={{ u.ship_via | urlencode }}#override-form"><i class="fa-solid fa-plus"></i> Create override for “{{ u.base }}”</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
 <section class="card">
   <div class="card-header">
     <h2 class="card-title"><i class="fa-solid fa-right-left"></i> Overrides</h2>

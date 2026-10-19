@@ -312,6 +312,41 @@ class Database:
             "AND first_seen >= ? AND (ship_checked_at IS NULL OR ship_checked_at < ?) "
             "ORDER BY ship_checked_at IS NOT NULL, ship_checked_at LIMIT ?", (sent_since, checked_before, limit)).fetchall()
 
+    def unmatched_ship_vias(self, since: str) -> List[dict]:
+        """Ship Via text that couldn't be matched recently: [{ship_via, pos, last_at, reference, po_id}]."""
+        found: Dict[str, dict] = {}
+        for r in self.conn.execute("SELECT * FROM events WHERE event = 'shipping.unmatched' AND at >= ? "
+                                   "ORDER BY id DESC", (since,)):
+            try:
+                text = " ".join(str(json.loads(r["data"] or "{}").get("ship_via") or "").split())
+            except ValueError:
+                continue
+            if not text:
+                continue
+            item = found.setdefault(text.casefold(), {"ship_via": text, "pos": set(), "last_at": r["at"],
+                                                      "reference": r["reference"], "po_id": r["po_id"]})
+            item["pos"].add(r["po_id"])
+        return [{**v, "pos": len(v["pos"])} for v in found.values()]
+
+    def skipped_for_skus(self, since: str) -> List[dict]:
+        """Vendor POs skipped because no SKU matched, still skipped, with the SKUs that were on them."""
+        rows = self.conn.execute(
+            "SELECT p.*, COALESCE(c.name, p.client_name) AS client_display, c.id AS client_pk "
+            "FROM purchase_orders p LEFT JOIN clients c ON c.syncore_group_id = p.client_id "
+            "WHERE p.state = 'skipped' AND p.skip_reason LIKE 'no SKUs match%' AND p.updated_at >= ? "
+            "ORDER BY p.updated_at DESC LIMIT 100", (since,)).fetchall()
+        result = []
+        for row in rows:
+            event = self.conn.execute("SELECT data FROM events WHERE po_id = ? AND event = 'po.skipped' "
+                                      "ORDER BY id DESC LIMIT 1", (row["po_id"],)).fetchone()
+            try:
+                skus = (json.loads(event["data"] or "{}") if event else {}).get("skus_on_po") or []
+            except ValueError:
+                skus = []
+            if skus:
+                result.append({"row": row, "skus": skus})
+        return result
+
     def po_view(self, po_id: int) -> Optional[sqlite3.Row]:
         """One PO with its client's name (from the Clients page where linked)."""
         return self.conn.execute(

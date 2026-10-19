@@ -8,6 +8,41 @@
   </div>
 </header>
 
+{% if candidates %}
+<section class="card card-attention">
+  <div class="card-header">
+    <h2 class="card-title"><i class="fa-solid fa-triangle-exclamation"></i> Skipped because no SKU matched</h2>
+    <span class="muted small">{{ vendor_name }} POs, last 30 days</span>
+  </div>
+  <p class="card-note">None of these POs' SKUs contain {{ sku_pattern }} or are allowed for the client. If one of the SKUs is an inventory item in 3PL Central, allow it: the PO is processed on the next run. Vendor product codes (like a supplier's style number) aren't 3PL items, so leave those.</p>
+  <div class="table-wrap">
+    <table class="table table-stack">
+      <thead><tr><th>PO</th><th>Client</th><th>SKUs on the PO</th></tr></thead>
+      <tbody>
+        {% for c in candidates %}
+        <tr>
+          <td data-label="PO" class="nowrap"><a class="mono strong" href="/po/{{ c.row.po_id }}">{{ c.row.reference or ('PO id ' ~ c.row.po_id) }}</a><div class="cell-meta">{{ localtime(c.row.updated_at, short=True) }}</div></td>
+          <td data-label="Client">{{ c.row.client_display or '—' }}{% if not c.row.client_pk %}<div class="cell-meta">Not on the Clients page</div>{% endif %}</td>
+          <td data-label="SKUs">
+            <div class="sku-actions">
+              {% for sku in c.skus %}
+              <form method="post" action="/skus/allow-from-po" data-confirm="Allow {{ sku }} for {{ c.row.client_display }} and process {{ c.row.reference }}?">
+                <input type="hidden" name="_csrf" value="{{ csrf }}">
+                <input type="hidden" name="po_id" value="{{ c.row.po_id }}">
+                <input type="hidden" name="sku" value="{{ sku }}">
+                <button class="btn btn-secondary btn-sm" {{ 'disabled' if not c.row.client_pk }} title="Allow this SKU for the client and process the PO"><span class="mono">{{ sku }}</span> <i class="fa-solid fa-check"></i> Allow</button>
+              </form>
+              {% endfor %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
 <div class="two-col">
   <section class="card">
     <div class="card-header">

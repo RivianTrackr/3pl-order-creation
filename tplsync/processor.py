@@ -486,6 +486,7 @@ class Processor:
             if not mapping.is_vendor(po, self.s.vendor_name):
                 raise SkipPO(f"vendor is {supplier!r}, not {self.s.vendor_name!r}", ref)
         if not lines and order_id is None:
+            self._remember_client(po_id, job_id, ref)
             raise SkipPO(f"no SKUs match {self.s.sku_pattern!r} or the Allowed SKUs list", ref,
                          {"skus_on_po": mapping.po_skus(po)})
 

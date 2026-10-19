@@ -6,7 +6,7 @@ import re
 import select
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
@@ -769,7 +769,18 @@ def create_app(boot: Bootstrap) -> FastAPI:
                         values.get("TPL_DEFAULT_CARRIER"), values.get("TPL_DEFAULT_MODE"))
                 except carrier_match.CarrierMatchError as exc:
                     check_error = str(exc)
-        return render(request, db, "shipping.html", rules=db.list_shipping_rules(),
+        unmatched = []
+        if carriers:
+            since = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S")
+            for item in db.unmatched_ship_vias(since):
+                try:   # still unmatched today? (an override may have been added since)
+                    carrier_match.resolve_routing(item["ship_via"], shipping_overrides(db), carriers,
+                                                  values.get("TPL_BILLING_CODE") or "Prepaid", None, None)
+                except carrier_match.CarrierMatchError:
+                    item["base"] = carrier_match.split_account(item["ship_via"],
+                                                               carrier_match.service_words(carriers))[0]
+                    unmatched.append(item)
+        return render(request, db, "shipping.html", rules=db.list_shipping_rules(), unmatched=unmatched,
                       editing=db.get_shipping_rule(edit) if edit else None,
                       default_billing=values.get("TPL_BILLING_CODE"), carriers=carriers, fetched_at=fetched_at,
                       carriers_json=json.dumps(carrier_match.carriers_to_json(carriers or [])),
@@ -851,7 +862,16 @@ def create_app(boot: Bootstrap) -> FastAPI:
         counts: dict = {}
         for r in db.list_allowed_skus():
             counts[r["client_pk"]] = counts.get(r["client_pk"], 0) + 1
+        since = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S")
+        allowed = db.allowed_skus_by_client()
+        candidates = []
+        for item in db.skipped_for_skus(since):
+            mine = allowed.get(item["row"]["client_pk"], set())
+            item["skus"] = [s for s in item["skus"] if s.casefold() not in mine]
+            if item["skus"]:
+                candidates.append(item)
         return render(request, db, "skus.html", rows=rows, clients=db.list_clients(), counts=counts,
+                      candidates=candidates,
                       selected=client, sku_pattern=setting_values(db, box).get("SKU_PATTERN") or "INV|OD")
 
     @app.post("/skus/add", dependencies=[Depends(csrf_protect)])
@@ -894,6 +914,19 @@ def create_app(boot: Bootstrap) -> FastAPI:
             message += (f". No client found for: {names}. Add those SKUs below with the right client, or rename the "
                         f"client in the sheet to match the Clients page.")
         return redirect("/skus", message + ("" if unmatched else "."), "info" if unmatched else "success")
+
+    @app.post("/skus/allow-from-po", dependencies=[Depends(csrf_protect)])
+    def skus_allow_from_po(request: Request, po_id: int = Form(...), sku: str = Form(...),
+                           db: Database = Depends(get_db)):
+        row = db.po_view(po_id)
+        client = next((c for c in db.list_clients() if row and c["syncore_group_id"] == row["client_id"]), None)
+        if row is None or client is None:
+            return redirect("/skus", "That PO's client isn't on the Clients page yet. Add the client first.", "error")
+        db.add_allowed_sku(client["id"], sku.strip()[:100], None, username(request))
+        db.reset(po_id)
+        db.audit(username(request), "skus.allow_from_po", f"{client['name']}: {sku} (PO {row['reference'] or po_id})")
+        return redirect("/skus", f"{sku} is now allowed for {client['name']}, and {row['reference'] or po_id} will be "
+                                 f"processed on the next run.")
 
     @app.post("/skus/{sku_id}/delete", dependencies=[Depends(csrf_protect)])
     def skus_delete(request: Request, sku_id: int, client: str = Form(""), db: Database = Depends(get_db)):
