@@ -24,6 +24,7 @@ from .. import maintenance
 from ..config import (ROOT, Bootstrap, ConfigError, TplClient, any_ready_client, load_settings,
                       missing_required, setting_values, shipping_overrides, status_list)
 from ..db import Database, client_missing, client_status, company_key, utcnow
+from .. import emails
 from ..http import ApiError
 from ..skulist import SheetError, read_sheet
 from ..notify import Notifier
@@ -369,7 +370,7 @@ def create_app(boot: Bootstrap) -> FastAPI:
         events = _parse_data(db.list_events(1000, po_id=po_id))
         if not record and not events:
             raise HTTPException(404, "No record of that purchase order.")
-        client = next((r for r in db.recent(1, q=str(po_id)) if r["po_id"] == po_id), None)
+        client = db.po_view(po_id)
         return render(request, db, "logs_po.html", po_id=po_id, record=record, events=events, nav="dashboard",
                       client_name=client["client_display"] if client else None,
                       emails=db.list_emails(200, po_id=po_id),
@@ -481,7 +482,9 @@ def create_app(boot: Bootstrap) -> FastAPI:
         try:
             Notifier(values["SENDGRID_API_KEY"], values["EMAIL_FROM"], values["ALERT_EMAIL_TO"]).send(
                 "[3PL] Test alert", ["This is a test alert from the 3PL Order Sync admin.",
-                                     f"Sent by {username(request)}."])
+                                     f"Sent by {username(request)}."],
+                html_body=emails.test_email(admin_url=values.get("ADMIN_URL") or "",
+                                            recipients=values["ALERT_EMAIL_TO"]))
             db.audit(username(request), "email.test")
             return redirect("/settings", f"Test email sent to {values['ALERT_EMAIL_TO']}.")
         except ApiError as exc:

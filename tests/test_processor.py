@@ -465,3 +465,35 @@ def test_held_and_skipped_pos_record_their_reference_and_client(env):
     assert held["state"] == "held" and held["reference"] == "12345-3"
     assert held["client_id"] == "5001" and held["client_name"] == "Client Inc"
     assert skipped["state"] == "skipped" and skipped["reference"] == "12345-3"
+
+
+def test_alert_emails_use_the_html_design(env):
+    proc, db, syncore, tpl, notifier = env([make_po(sku="MISSING-INV")])
+    proc.s.admin_url = "https://3pl.example.com"
+    proc.run(NOW)
+    subject, lines = notifier.sent[-1]
+    assert subject == "[3PL] Problem with order 12345-3"
+    assert "View this PO: https://3pl.example.com/po/900" in lines
+    html = notifier.html
+    assert "Problem with an order" in html and "Client Inc" in html and "MISSING-INV" in html
+    assert 'href="https://3pl.example.com/po/900"' in html
+
+
+def test_shortage_alert_lists_the_short_items(env):
+    proc, db, syncore, tpl, notifier = env([make_po(qty=10)], available=3)
+    proc.run(NOW)
+    html = notifier.html
+    assert "Order left open" in html and "Short items" in html and "SHIRT-INV" in html and ">10<" in html
+
+
+def test_po_with_unreadable_lines_still_names_its_client(env):
+    po = make_po()
+    po["line_items"] = [
+        {"line_id": 1, "parent_id": 0, "type": "Product", "sku": "", "description": "ON DEMAND", "quantity": 4},
+        {"line_id": 2, "parent_id": 0, "type": "Comment", "sku": "", "description": "SKU: A-INV", "quantity": 0},
+        {"line_id": 3, "parent_id": 0, "type": "Comment", "sku": "", "description": "SKU: B-INV", "quantity": 0},
+    ]
+    proc, db, syncore, tpl, notifier = env([po])
+    proc.run(NOW)
+    row = db.po_view(900)
+    assert row["state"] == "error" and row["client_display"] == "Client Inc"

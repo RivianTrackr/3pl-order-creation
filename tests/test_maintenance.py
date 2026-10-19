@@ -102,3 +102,21 @@ def test_daily_tasks_run_once_a_day(env, tmp_path):  # noqa: F811
     maintenance.run_daily_tasks(db, proc.s, notifier, folder, MORNING + timedelta(days=1))
     assert len(list((tmp_path / "b").glob("*.db"))) == 2
     assert len(notifier.sent) == 2
+
+
+def test_failing_runs_count_as_one_thing_and_say_why(env):  # noqa: F811
+    proc, db, syncore, tpl, notifier = env([make_po()])
+    for i in range(128):
+        run = db.start_run("scheduled", None, False, None)
+        db.finish_run(run, "failed", None, "Syncore GET /jobs/purchaseorders -> HTTP 429" if i % 4 else "database is locked")
+    for _ in range(3):
+        db.finish_run(db.start_run("scheduled", None, False, None), "ok", {"found": 0})
+    db.finish_run(db.start_run("test", "pat", False, "job 1 / PO 2"), "failed", None, "test run error")
+    data = maintenance.summary.collect(db, proc.s, MORNING)
+    assert (data.runs, data.failed_runs, data.attention) == (131, 128, 1)
+    assert data.run_errors[0] == ("Syncore GET /jobs/purchaseorders -> HTTP 429", 96)
+    maintenance.send_summary(db, proc.s, notifier, MORNING)
+    subject, lines = notifier.sent[-1]
+    assert subject.endswith("- 1 needs attention")
+    assert "RUNS FAILING: 128 of 131" in "\n".join(lines) and "96x  Syncore GET" in "\n".join(lines)
+    assert "Runs failing" in notifier.html and "1 thing needs attention" in notifier.html

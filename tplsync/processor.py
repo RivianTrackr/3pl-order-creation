@@ -28,6 +28,7 @@ from . import clientmatch
 from . import mapping
 from . import skus
 from .config import Settings, TplClient
+from . import emails
 from .db import Database, client_missing, utcnow
 from .http import ApiError
 from .notify import Notifier
@@ -111,6 +112,19 @@ class Processor:
         return self._carriers
 
     CUSTOMER_SYNC_HOURS = 24
+
+    def _remember_client(self, po_id: int, job_id: int, ref: str) -> None:
+        """Record which client a PO belongs to, for alerts and the dashboard. Best effort."""
+        if self.s.dry_run:
+            return
+        try:
+            client = self.syncore.get_job(job_id).get("client") or {}
+            if client.get("id"):
+                group_id, group_name = self.client_group(str(client["id"]))
+                self.db.upsert(po_id, job_id, reference=ref, client_id=group_id or None,
+                               client_name=group_name or client.get("business_name"))
+        except Exception:  # noqa: BLE001 - the PO's own error is what matters
+            log.debug("Could not look up the client for PO %s", po_id, exc_info=True)
 
     def client_group(self, contact_id: str):
         """(group id, group name) for a Syncore contact, cached for a week."""
@@ -235,7 +249,10 @@ class Processor:
                 self._send_alert(row["po_id"], row["job_id"], ref,
                                  f"[3PL] Order {ref} completed - stock arrived",
                                  [f"3PL Central order {order_id} ({ref}) was waiting for inventory and has now been "
-                                  f"completed automatically.", "", f"Client: {creds.name}"], "stock_arrived")
+                                  f"completed automatically.", "", f"Client: {creds.name}"], "stock_arrived",
+                                 emails.stock_arrived_email(admin_url=self.s.admin_url, po_id=row["po_id"],
+                                                            job_id=row["job_id"], reference=ref, client=creds.name,
+                                                            order_id=order_id))
             except Exception as exc:  # noqa: BLE001
                 self.stats["errors"] += 1
                 self.event(row["po_id"], row["job_id"], ref, "error", "order.recheck_failed",
@@ -324,6 +341,7 @@ class Processor:
         except mapping.LineMappingError:
             if not mapping.is_vendor(po, self.s.vendor_name):
                 raise SkipPO(f"vendor is {supplier!r}, not {self.s.vendor_name!r}", ref)
+            self._remember_client(po_id, job_id, ref)
             raise
         still_held = rec is not None and rec["state"] == "held" and not dry
         if not still_held:
@@ -491,7 +509,7 @@ class Processor:
     # --- alerts ---------------------------------------------------------------
 
     def _send_alert(self, po_id: int, job_id: Optional[int], ref: Optional[str], subject: str, lines: list,
-                    kind: str) -> bool:
+                    kind: str, html_body: Optional[str] = None) -> bool:
         """Email an alert unless that kind is turned off in Settings > Emails. True once it's been dealt with
         (sent, or deliberately not sent), so the same problem isn't alerted again."""
         if not self.s.emails.get(kind, True):
@@ -499,7 +517,9 @@ class Processor:
                                                                    f"{subject}")
             return True
         try:
-            self.notifier.send(subject, lines, po_id=po_id)
+            if self.s.admin_url and po_id:
+                lines = [*lines, "", f"View this PO: {emails.po_url(self.s.admin_url, po_id)}"]
+            self.notifier.send(subject, lines, po_id=po_id, html_body=html_body)
         except Exception as exc:  # noqa: BLE001
             self.event(po_id, job_id, ref, "error", "alert.failed", f"Alert email could not be sent: {exc}")
             return False
@@ -520,8 +540,15 @@ class Processor:
             "Short items:",
         ]
         lines += [f"  {s['sku']}: ordered {s['ordered']:g}, available {s['available']:g}" for s in shortages]
+        ship_to = po.get("ship_to") or {}
+        html_body = emails.shortage_email(
+            admin_url=self.s.admin_url, po_id=po_id, job_id=po["job_number"], reference=ref,
+            client=creds.name or (job.get("client") or {}).get("business_name", ""), order_id=order_id,
+            ship_to=", ".join(x for x in (ship_to.get("business_name") or ship_to.get("name"), ship_to.get("city"),
+                                          ship_to.get("state")) if x),
+            shortages=shortages)
         self._send_alert(po_id, po["job_number"], ref, f"[3PL] Order {ref} left Open - insufficient inventory", lines,
-                         "short_stock")
+                         "short_stock", html_body)
 
     def _record_error(self, po_id: int, job_id: int, exc: Exception) -> None:
         if isinstance(exc, (ClientNotReady, ApiError, mapping.LineMappingError)) or type(exc) is RuntimeError:
@@ -569,5 +596,11 @@ class Processor:
                   if isinstance(exc, ClientNotReady) else "It will be retried automatically on the next run."),
         ]
         kind = "client_paused" if isinstance(exc, ClientNotReady) else ("failed" if state == "failed" else "errors")
-        if self._send_alert(po_id, job_id, ref, f"[3PL] Problem with order {ref or f'PO id {po_id}'}", lines, kind):
+        view = self.db.po_view(po_id)
+        html_body = emails.problem_email(
+            admin_url=self.s.admin_url, po_id=po_id, job_id=job_id, reference=ref,
+            client=view["client_display"] if view else None, error=message, order_id=order_id, attempts=attempts,
+            gave_up=state == "failed", client_paused=isinstance(exc, ClientNotReady))
+        if self._send_alert(po_id, job_id, ref, f"[3PL] Problem with order {ref or f'PO id {po_id}'}", lines, kind,
+                            html_body):
             self.db.upsert(po_id, job_id, alerted_error=signature)

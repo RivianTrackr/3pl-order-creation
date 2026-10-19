@@ -286,6 +286,12 @@ class Database:
             sql += " WHERE " + " AND ".join(where)
         return self.conn.execute(sql + " ORDER BY p.updated_at DESC LIMIT ?", (*params, limit)).fetchall()
 
+    def po_view(self, po_id: int) -> Optional[sqlite3.Row]:
+        """One PO with its client's name (from the Clients page where linked)."""
+        return self.conn.execute(
+            "SELECT p.*, COALESCE(c.name, p.client_name) AS client_display FROM purchase_orders p "
+            "LEFT JOIN clients c ON c.syncore_group_id = p.client_id WHERE p.po_id = ?", (po_id,)).fetchone()
+
     def event_counts_since(self, since: str) -> Dict[str, int]:
         return {r["event"]: r["n"] for r in self.conn.execute(
             "SELECT event, COUNT(*) AS n FROM events WHERE at >= ? GROUP BY event", (since,))}
