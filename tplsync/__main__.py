@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import clientmatch
+from . import health
 from . import maintenance
 from .config import ConfigError, load_bootstrap, load_settings, setting_values
 from .crypto import generate_key
@@ -70,6 +71,22 @@ def match_clients(boot, db: Database, user) -> int:
     handler.close()
     db.finish_run(run_id, "ok", counts)
     return 0
+
+
+def _alert_channel(db: Database, boot, processor):
+    """Settings and a notifier for a run-health email, even when the run failed before it had them."""
+    if processor is not None:
+        return processor.s, processor.notifier
+    try:
+        settings = load_settings(db, boot.secret_box(), boot.db_path, require_complete=False)
+    except Exception:  # noqa: BLE001 - e.g. settings can't be decrypted: nothing to email with
+        return None, None
+    if not (settings.sendgrid_api_key and settings.email_from and settings.alert_email_to):
+        return None, None
+    notifier = Notifier(settings.sendgrid_api_key, settings.email_from, settings.alert_email_to, settings.dry_run)
+    notifier.recorder = lambda subject, to, body, status, error, po_id: db.add_email(None, None, subject, to, body,
+                                                                                     status, error)
+    return settings, notifier
 
 
 def main(argv=None) -> int:
@@ -231,6 +248,8 @@ def main(argv=None) -> int:
         if not single:
             db.set_meta("last_run_finished", utcnow())
             db.set_meta("last_run_error", str(exc)[:1000])
+            settings, notifier = _alert_channel(db, boot, processor)
+            health.after_run(db, settings, notifier, ok=False)
         return 1
 
     root.removeHandler(handler)
@@ -241,6 +260,7 @@ def main(argv=None) -> int:
     if not single:
         db.set_meta("last_run_finished", utcnow())
         db.set_meta("last_run_error", None)
+        health.after_run(db, processor.s, processor.notifier, ok=True)
         maintenance.run_daily_tasks(db, processor.s, processor.notifier, boot.backup_dir)
     try:
         db.prune_logs(int(setting_values(db, boot.secret_box()).get("LOG_RETENTION_DAYS") or 90))

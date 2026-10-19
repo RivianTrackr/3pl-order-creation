@@ -26,7 +26,7 @@ For each PO created after go-live:
 
 Once a day (after the hour set in Settings) a **summary email** goes out: orders created and completed, anything needing attention, anything waiting for stock, and POs on hold until their job is submitted. Only active clients are listed; POs for clients that aren't set up or are paused are counted in one line instead. With **Settings → Alerts → Admin address** set, each reference links to its PO page. The same run makes a **backup** of the database, kept for 14 days by default.
 
-Any error sends one alert email per distinct problem and is retried on the next run. After 20 failed attempts it stops retrying; use **Retry** on the dashboard once the cause is fixed. Each step is recorded, so a retry resumes where it stopped.
+If **3 scheduled runs in a row fail** (for example Syncore rejects the API key), one email says what's wrong and what to do, and another follows when runs work again. Any error sends one alert email per distinct problem and is retried on the next run. After 20 failed attempts it stops retrying; use **Retry** on the dashboard once the cause is fixed. Each step is recorded, so a retry resumes where it stopped.
 
 Each kind of alert email (short stock, stock arrived, problems being retried, POs that stopped retrying, POs for a paused client) can be switched on or off under **Settings → Emails**. Paused-client emails are off by default. A switched-off alert still appears in the PO's timeline.
 

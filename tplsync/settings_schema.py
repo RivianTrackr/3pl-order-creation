@@ -90,6 +90,9 @@ SETTINGS: Tuple[SettingDef, ...] = (
     SettingDef("EMAIL_CLIENT_PAUSED", "PO for a paused client", "emails", "bool", default="false",
                help="A PO arrived for a client that's paused on the Clients page. It's sent automatically once "
                     "the client is activated."),
+    SettingDef("EMAIL_RUN_FAILURES", "Runs failing, and back to normal", "emails", "bool", default="true",
+               help="Scheduled runs failed 3 times in a row (e.g. an API key was rejected), so no POs are being sent. "
+                    "One email when it starts and one when runs work again."),
     SettingDef("DAILY_SUMMARY", "Daily summary email", "emails", "bool", default="true",
                help="One email a day listing what was created, what's waiting for stock and what needs attention."),
     SettingDef("SUMMARY_HOUR", "Send summary at (hour)", "emails", "int", default="8",

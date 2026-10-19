@@ -75,6 +75,7 @@ class TplClient:
 # Alert email kinds -> on/off by default (Settings > Emails).
 EMAIL_DEFAULTS: Dict[str, bool] = {
     "short_stock": True, "stock_arrived": True, "errors": True, "failed": True, "client_paused": False,
+    "run_failures": True,
 }
 
 

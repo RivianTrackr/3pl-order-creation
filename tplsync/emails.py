@@ -218,3 +218,27 @@ def test_email(*, admin_url: str, recipients: str) -> str:
             facts([("Sent to", e(recipients))])]
     return page("Test email", "Alerts are set up", "", head,
                 [button(f"{admin_url.rstrip('/')}/settings" if admin_url else None, "Open Settings")])
+
+
+def runs_failing_email(*, admin_url: str, headline: str, fix: str, error: str, since: str, failed: int) -> str:
+    logs = f"{admin_url.rstrip('/')}/logs?tab=runs&status=failed" if admin_url else None
+    head = [
+        banner("error", headline, ["No new POs are being sent until this is fixed. Nothing is lost: runs keep "
+                                   "retrying every 5 minutes and catch up once it works."]),
+        facts([("Failing since", e(since)), ("Failed runs", e(f"{failed} in a row")), ("What to do", e(fix))]),
+    ]
+    body = [card("Error", message(error[:1500]), "error"), button(logs, "See the failed runs")]
+    return page("Runs are failing", headline, f"Since {since}", head, body,
+                "You'll get one more email when runs are working again.")
+
+
+def runs_recovered_email(*, admin_url: str, headline: str, since: str, duration: str, failed: int) -> str:
+    head = [
+        banner("success", "Scheduled runs are working again",
+               ["Nothing was missed: each run looks back over the last 72 hours, so POs from the gap have been "
+                "picked up."]),
+        facts([("Problem was", e(headline)), ("Failing since", e(since)), ("Lasted", e(duration)),
+               ("Failed runs", e(f"at least {failed}"))]),
+    ]
+    return page("Runs recovered", "Back to normal", f"After {duration}", head,
+                [button(f"{admin_url.rstrip('/')}/" if admin_url else None, "Open the dashboard")])
