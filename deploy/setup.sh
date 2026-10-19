@@ -14,15 +14,20 @@ mkdir -p "$APP_DIR"
 rsync -a --delete \
   --exclude venv --exclude .env --exclude '*.db' --exclude '*.db-*' --exclude '*.lock' \
   --exclude .git --exclude .claude --exclude __pycache__ --exclude .pytest_cache \
+  --exclude /update --exclude /VERSION --exclude /backups --exclude /.cache \
   "$SRC_DIR"/ "$APP_DIR"/
+chown -R tplsync:tplsync "$APP_DIR"
 
-[ -d "$APP_DIR/venv" ] || python3 -m venv "$APP_DIR/venv"
-"$APP_DIR/venv/bin/pip" install -q --upgrade pip
-"$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
+# Everything under $APP_DIR is writable by the app user, so nothing in it ever runs as root:
+# the venv, pip and the app itself run as tplsync. Root only copies files and runs code from $SRC_DIR.
+as_app() { runuser -u tplsync -- "$@"; }
+[ -d "$APP_DIR/venv" ] || as_app python3 -m venv "$APP_DIR/venv"
+as_app "$APP_DIR/venv/bin/pip" install -q --upgrade pip
+as_app "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 
 if [ ! -f "$APP_DIR/.env" ]; then
-  cp "$APP_DIR/.env.example" "$APP_DIR/.env"
-  KEYS="$(cd "$APP_DIR" && "$APP_DIR/venv/bin/python" -m tplsync gen-keys)"
+  cp "$SRC_DIR/.env.example" "$APP_DIR/.env"
+  KEYS="$(cd "$APP_DIR" && as_app "$APP_DIR/venv/bin/python" -m tplsync gen-keys)"
   ENC="$(echo "$KEYS" | sed -n 's/^TPLSYNC_ENCRYPTION_KEY=//p')"
   SES="$(echo "$KEYS" | sed -n 's/^ADMIN_SECRET_KEY=//p')"
   sed -i "s|^TPLSYNC_ENCRYPTION_KEY=.*|TPLSYNC_ENCRYPTION_KEY=$ENC|; s|^ADMIN_SECRET_KEY=.*|ADMIN_SECRET_KEY=$SES|" "$APP_DIR/.env"
@@ -35,8 +40,22 @@ chown tplsync:tplsync "$APP_DIR/backups"
 chmod 700 "$APP_DIR/backups"
 chmod 600 "$APP_DIR/.env"
 
-cp "$APP_DIR"/deploy/tplsync.service "$APP_DIR"/deploy/tplsync.timer "$APP_DIR"/deploy/tplsync-admin.service /etc/systemd/system/
+# Which code is deployed, for the admin's System page.
+REPO="$(git -C "$SRC_DIR" remote get-url origin 2>/dev/null | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
+SHA="$(git -C "$SRC_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
+printf '{"sha": "%s", "repo": "%s", "deployed_at": "%s"}\n' "$SHA" "$REPO" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$APP_DIR/VERSION"
+
+# The admin's Update button: it may only create update/requested; a root-owned script does the rest.
+install -o root -g root -m 755 "$SRC_DIR/deploy/update.sh" /usr/local/sbin/tplsync-update
+mkdir -p "$APP_DIR/update"
+chown tplsync:tplsync "$APP_DIR/update"
+chmod 755 "$APP_DIR/update"
+
+for unit in tplsync.service tplsync.timer tplsync-admin.service tplsync-update.service tplsync-update.path; do
+  install -o root -g root -m 644 "$SRC_DIR/deploy/$unit" /etc/systemd/system/
+done
 systemctl daemon-reload
+systemctl enable --now tplsync-update.path
 systemctl enable --now tplsync-admin.service
 systemctl restart tplsync-admin.service
 

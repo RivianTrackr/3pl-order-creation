@@ -607,3 +607,6 @@ tr.row-link[data-href] { cursor: pointer; }
   .trend-body { grid-template-columns: 1fr; }
   .trend-figures { flex-direction: row; flex-wrap: wrap; gap: 12px 28px; }
 }
+.change-list { list-style: none; margin: 0; padding: 6px 20px 12px; }
+.change-list li { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.change-list li:last-child { border-bottom: 0; }

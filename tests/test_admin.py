@@ -530,3 +530,43 @@ def test_dashboard_shows_the_30_day_chart(client, boot):
     login(client)
     page = client.get("/").text
     assert "Last 30 days" in page and 'class="bar-hit"' in page and "Show as table" in page
+
+
+def _fake_install(monkeypatch, tmp_path, ci="passed", latest_sha="b" * 40):
+    import json
+    from tplsync import updates
+    root = tmp_path / "app"
+    (root / "update").mkdir(parents=True)
+    (root / "VERSION").write_text(json.dumps({"sha": "a" * 40, "repo": "owner/repo",
+                                              "deployed_at": "2026-10-19T12:00:00Z"}))
+    monkeypatch.setattr(updates, "VERSION_FILE", root / "VERSION")
+    monkeypatch.setattr(updates, "TRIGGER", root / "update" / "requested")
+    monkeypatch.setattr(updates, "STATE_DIR", tmp_path / "state")
+    monkeypatch.setattr(updates, "latest", lambda repo, sha: {
+        "sha": latest_sha, "title": "Add trends", "date": "2026-10-19T15:00:00Z", "ci": ci, "url": "https://x",
+        "changes": [{"sha": "bbbbbbb", "title": "Add trends", "date": "2026-10-19T15:00:00Z"}]})
+    return updates
+
+
+def test_update_button_installs_only_tested_new_versions(client, boot, monkeypatch, tmp_path):
+    login(client)
+    updates = _fake_install(monkeypatch, tmp_path)
+    page = client.get("/settings/system").text
+    assert "Update available" in page and "Add trends" in page and "Passed" in page
+    client.post("/settings/system/update", data={"_csrf": csrf(client, "/settings/system")})
+    assert updates.TRIGGER.exists()                       # the root-owned service takes it from here
+    assert "Update starting" in client.get("/settings/system").text
+
+
+def test_update_refused_when_tests_failed(client, boot, monkeypatch, tmp_path):
+    login(client)
+    updates = _fake_install(monkeypatch, tmp_path, ci="failed")
+    resp = client.post("/settings/system/update", data={"_csrf": csrf(client, "/settings/system")})
+    assert "hasn" in resp.text and not updates.TRIGGER.exists()
+
+
+def test_system_page_is_admins_only(client, boot, monkeypatch, tmp_path):
+    _fake_install(monkeypatch, tmp_path)
+    Database(boot.db_path).create_user("ps-team", hash_password(PASSWORD), "viewer")
+    client.post("/login", data={"username": "ps-team", "password": PASSWORD})
+    assert client.get("/settings/system").status_code == 403

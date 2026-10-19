@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}System & updates{% endblock %}
+{% block head %}{% if state.state in ('requested', 'running') %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="breadcrumb"><a href="/settings">Settings</a> /</p>
+    <h1 class="page-title">System &amp; updates</h1>
+    <p class="page-subtitle">Install the latest version straight from GitHub. Only versions whose tests passed can be installed.</p>
+  </div>
+  {% if installed %}
+  <form method="post" action="/settings/system/update" data-confirm="Install the latest version now? The admin restarts at the end (about a minute).">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <button class="btn btn-primary" {{ 'disabled' if not can_update }} data-loading-text="Starting…"><i class="fa-solid fa-download"></i> Update now</button>
+  </form>
+  {% endif %}
+</header>
+
+{% if not installed %}
+<div class="notice notice-info"><i class="fa-solid fa-circle-info"></i><span>The Update button isn't set up on this server yet. Run the usual update over SSH once (<code>sudo git -C /usr/local/src/tplsync pull &amp;&amp; sudo bash /usr/local/src/tplsync/deploy/setup.sh</code>); after that, updates can be installed from here.</span></div>
+{% endif %}
+{% if error %}<div class="notice notice-warning"><i class="fa-solid fa-triangle-exclamation"></i><span>{{ error }}</span></div>{% endif %}
+{% if state.state in ('requested', 'running') %}
+<div class="notice notice-info"><i class="fa-solid fa-spinner fa-spin"></i><span>Update {{ 'starting' if state.state == 'requested' else 'in progress' }}… this page refreshes every 5 seconds.</span></div>
+{% elif state.state == 'failed' %}
+<div class="notice notice-error"><i class="fa-solid fa-circle-xmark"></i><span>The last update failed ({{ localtime(state.at) }}). The previous version is still running; see the log below.</span></div>
+{% endif %}
+
+<section class="card">
+  <dl class="facts">
+    <div><dt>Running</dt><dd class="mono">{{ (version.sha or 'unknown')[:7] if version else 'development copy' }}</dd>
+      {% if version %}<p class="cell-meta">installed {{ localtime(version.deployed_at) }}</p>{% endif %}</div>
+    <div><dt>Latest on GitHub</dt><dd class="mono">{% if latest %}<a href="{{ latest.url }}" target="_blank" rel="noopener">{{ latest.sha[:7] }}</a>{% else %}—{% endif %}</dd>
+      {% if latest %}<p class="cell-meta">{{ latest.title }}</p>{% endif %}</div>
+    <div><dt>Tests</dt><dd>
+      {% if not latest %}—
+      {% elif latest.ci == 'passed' %}<span class="badge badge-success"><i class="fa-solid fa-check"></i> Passed</span>
+      {% elif latest.ci == 'running' %}<span class="badge badge-info"><i class="fa-solid fa-spinner fa-spin"></i> Running</span>
+      {% elif latest.ci == 'failed' %}<span class="badge badge-error"><i class="fa-solid fa-xmark"></i> Failed</span>
+      {% else %}<span class="badge badge-muted">Not run</span>{% endif %}</dd></div>
+    <div><dt>Status</dt><dd>
+      {% if latest and version and latest.sha == version.sha %}<span class="badge badge-success"><i class="fa-solid fa-check"></i> Up to date</span>
+      {% elif latest %}<span class="badge badge-warning">Update available</span>{% else %}—{% endif %}</dd></div>
+  </dl>
+</section>
+
+{% if latest and latest.changes %}
+<section class="card">
+  <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-list"></i> What's new</h2><span class="muted small">{{ latest.changes | length }} change{{ '' if latest.changes | length == 1 else 's' }}</span></div>
+  <ul class="change-list">
+    {% for c in latest.changes %}<li><span class="mono cell-meta">{{ c.sha }}</span> {{ c.title }}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if state.log %}
+<section class="card">
+  <div class="card-header"><h2 class="card-title"><i class="fa-solid fa-terminal"></i> Last update log</h2>{% if state.at %}<span class="muted small">{{ localtime(state.at) }}</span>{% endif %}</div>
+  <pre class="log">{{ state.log }}</pre>
+</section>
+{% endif %}
+{% endblock %}

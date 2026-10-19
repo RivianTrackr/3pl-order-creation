@@ -50,6 +50,10 @@ Each kind of alert email (short stock, stock arrived, problems being retried, PO
 - API keys and client secrets are encrypted in the database with `TPLSYNC_ENCRYPTION_KEY` and are never shown again once saved.
 - The UI listens on 127.0.0.1 only. Serve it through Nginx with HTTPS.
 
+## Updating
+
+After the first deploy, **Settings → System & updates** shows the running version, what's new on GitHub and whether its tests passed, and installs it with **Update now**. The button only writes a request file; a root-owned systemd service (`deploy/tplsync-update.path` / `.service`) runs `deploy/update.sh`, which pulls and runs `setup.sh`. Nothing in `/opt/tplsync` ever runs as root. Updating over SSH still works the same way.
+
 ## Deploy (Linode, Debian/Ubuntu)
 
 ```bash

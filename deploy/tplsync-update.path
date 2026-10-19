@@ -1,0 +1,9 @@
+[Unit]
+Description=Start a 3PL Order Sync update when the admin asks for one
+
+[Path]
+PathExists=/opt/tplsync/update/requested
+Unit=tplsync-update.service
+
+[Install]
+WantedBy=multi-user.target

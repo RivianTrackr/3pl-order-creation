@@ -24,7 +24,7 @@ from .. import maintenance
 from ..config import (ROOT, Bootstrap, ConfigError, TplClient, any_ready_client, load_settings,
                       missing_required, setting_values, shipping_overrides, status_list)
 from ..db import Database, client_missing, client_status, company_key, utcnow
-from .. import emails, stats
+from .. import emails, stats, updates
 from ..http import ApiError
 from ..skulist import SheetError, read_sheet
 from ..notify import Notifier
@@ -562,6 +562,40 @@ def create_app(boot: Bootstrap) -> FastAPI:
             return redirect("/settings", message)
         except ApiError as exc:
             return redirect("/settings", f"Syncore connection failed (HTTP {exc.status}). Check the API key.", "error")
+
+    @app.get("/settings/system", response_class=HTMLResponse)
+    def system_page(request: Request, db: Database = Depends(get_db)):
+        version = updates.deployed()
+        latest, error = None, None
+        if version and version.get("repo"):
+            try:
+                latest = updates.latest(version["repo"], version.get("sha"))
+            except Exception as exc:  # noqa: BLE001 - GitHub down or rate-limited: still show what's deployed
+                error = f"Couldn't reach GitHub ({type(exc).__name__}). Try again in a minute."
+        state = updates.status()
+        can_update = bool(updates.installed() and latest and version and latest["sha"] != version.get("sha")
+                          and latest["ci"] == "passed" and state["state"] not in ("requested", "running"))
+        return render(request, db, "system.html", nav="settings", version=version, latest=latest, error=error, state=state,
+                      installed=updates.installed(), can_update=can_update)
+
+    @app.post("/settings/system/update", dependencies=[Depends(csrf_protect)])
+    def system_update(request: Request, db: Database = Depends(get_db)):
+        version = updates.deployed()
+        if not (updates.installed() and version and version.get("repo")):
+            return redirect("/settings/system", "Updates aren't set up on this server yet.", "error")
+        try:
+            latest = updates.latest(version["repo"], version.get("sha"))
+        except Exception:  # noqa: BLE001
+            return redirect("/settings/system", "Couldn't reach GitHub to check the latest version.", "error")
+        if latest["sha"] == version.get("sha"):
+            return redirect("/settings/system", "Already up to date.", "info")
+        if latest["ci"] != "passed":
+            return redirect("/settings/system", "The latest version hasn't passed its tests, so it can't be "
+                                                "installed yet.", "error")
+        updates.request_update()
+        db.audit(username(request), "system.update", f"{version.get('sha', '')[:7]} -> {latest['sha'][:7]}")
+        return redirect("/settings/system", "Update started. It takes a minute or two; the admin restarts "
+                                            "at the end, so this page may briefly be unavailable.")
 
     @app.post("/settings/send-summary", dependencies=[Depends(csrf_protect)])
     def send_summary_now(request: Request, db: Database = Depends(get_db)):
