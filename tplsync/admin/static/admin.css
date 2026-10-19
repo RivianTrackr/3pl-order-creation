@@ -549,3 +549,7 @@ tr.row-link[data-href] { cursor: pointer; }
   .jump-nav { overflow-x: auto; flex-wrap: nowrap; }
   .jump-nav a { white-space: nowrap; }
 }
+
+.notice-action { align-items: center; }
+.notice-action > span { flex: 1; }
+.notice-action form { margin: 0; flex-shrink: 0; }

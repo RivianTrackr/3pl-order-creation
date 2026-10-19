@@ -242,3 +242,18 @@ def runs_recovered_email(*, admin_url: str, headline: str, since: str, duration:
     ]
     return page("Runs recovered", "Back to normal", f"After {duration}", head,
                 [button(f"{admin_url.rstrip('/')}/" if admin_url else None, "Open the dashboard")])
+
+
+def changed_email(*, admin_url: str, po_id: int, job_id: Optional[int], reference: str, client: Optional[str],
+                  order_id: int, changes: Sequence[str]) -> str:
+    head = [
+        banner("warning", "Changed in Syncore after it was sent",
+               ["The 3PL Central order was not changed. Check it with the warehouse, then mark the change as "
+                "reviewed on the PO's page."]),
+        facts([("3PL order", e(order_id)), ("Client", e(client or "Unknown"))]),
+    ]
+    rows = "".join(f'<li style="margin:4px 0;">{e(c)}</li>' for c in changes)
+    body = [card("What changed", f'<ul style="margin:0;padding:12px 14px 12px 32px;font-size:13px;color:#374151;">'
+                                 f'{rows}</ul>', "warning", len(changes)),
+            button(po_url(admin_url, po_id), "View this PO")]
+    return page("PO changed after sending", reference, _subtitle(client, job_id), head, body)

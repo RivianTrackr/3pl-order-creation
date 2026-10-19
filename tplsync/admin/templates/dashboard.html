@@ -74,7 +74,7 @@
         <input class="input input-sm" type="search" name="q" value="{{ q }}" placeholder="Search reference, job or client" aria-label="Search purchase orders">
       </form>
       <nav class="segmented" aria-label="Filter">
-        {% for key, label in [('', 'Active'), ('done', 'Done'), ('open_short', 'Open'), ('problems', 'Problems'), ('skipped', 'Skipped'), ('dismissed', 'Dismissed')] %}
+        {% for key, label in [('', 'Active'), ('done', 'Done'), ('open_short', 'Open'), ('problems', 'Problems'), ('changed', 'Changed' ~ (' (' ~ counts.changed ~ ')' if counts.changed else '')), ('skipped', 'Skipped'), ('dismissed', 'Dismissed')] %}
         <a href="/?state={{ key }}" class="{{ 'active' if state == key and not q }}">{{ label }}</a>
         {% endfor %}
       </nav>

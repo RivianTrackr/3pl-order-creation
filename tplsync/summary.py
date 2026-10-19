@@ -52,11 +52,12 @@ class Summary:
     dry_run: bool = False
     admin_url: str = ""
     run_errors: List[Tuple[str, int]] = field(default_factory=list)   # (error, times), most common first
+    changed: List[Item] = field(default_factory=list)    # sent POs edited in Syncore since, not yet reviewed
 
     @property
     def attention(self) -> int:
         """POs needing a look, plus one for failing runs (however many runs failed)."""
-        return len(self.problems) + (1 if self.failed_runs else 0)
+        return len(self.problems) + len(self.changed) + (1 if self.failed_runs else 0)
 
 
 def _item(row, detail: str) -> Item:
@@ -99,6 +100,8 @@ def collect(db: Database, settings: Settings, now: datetime) -> Summary:
         problems=[_item(r, (r["last_error"] or "")[:220]) for r in problems if tested(r) is not False],
         problems_not_tested=sum(1 for r in problems if tested(r) is False),
         open_orders=[_item(r, f"3PL order {r['order_id']}") for r in db.recent(100, state="open_short")],
+        changed=[_item(r, f"3PL order {r['order_id']}: {r['change_summary'] or ''}"[:240])
+                 for r in db.recent(100, state="changed")],
         held=[_item(r, _hold_reason(r["skip_reason"])) for r in held if tested(r) is not False],
         held_not_tested=sum(1 for r in held if tested(r) is False),
         not_set_up=_capped([r["name"] + (" (paused)" if client_status(r) == "paused" else "")
@@ -151,13 +154,14 @@ def render_text(s: Summary) -> List[str]:
             lines.append(f"  {more}")
 
     section("NEEDS ATTENTION", s.problems)
+    section("CHANGED IN SYNCORE AFTER IT WAS SENT (check the 3PL order)", s.changed)
     if s.failed_runs:
         lines.extend(["", f"RUNS FAILING: {s.failed_runs} of {s.runs} scheduled runs failed in the last 24 hours"])
         lines.extend(f"  {times}x  {error}" for error, times in s.run_errors)
     section("WAITING FOR STOCK", s.open_orders)
     section("ON HOLD UNTIL THE JOB IS SUBMITTED", s.held,
             f"Not shown: {s.held_not_tested} on hold for clients that aren't active." if s.held_not_tested else "")
-    if not (s.problems or s.open_orders or s.held or s.failed_runs):
+    if not (s.problems or s.changed or s.open_orders or s.held or s.failed_runs):
         lines += ["", "Nothing is stuck: no problems, nothing waiting for stock and nothing on hold."]
     if s.not_set_up or s.problems_not_tested:
         lines += ["", "NOT ACTIVE (their POs are skipped or wait): " + (", ".join(s.not_set_up) or "-")]
@@ -197,6 +201,11 @@ def render_html(s: Summary) -> str:
     if s.problems:
         body.append(E.card("Needs attention", E.table(["Reference", "Client", "Problem"], po_rows(s.problems)),
                            "error", len(s.problems)))
+    if s.changed:
+        body.append(E.card("Changed in Syncore after it was sent",
+                           E.table(["Reference", "Client", "What changed"], po_rows(s.changed)), "warning",
+                           len(s.changed), "The 3PL orders weren't changed. Check them with the warehouse, then mark "
+                                           "each change as reviewed on its PO page."))
     if s.failed_runs:
         logs = f"{s.admin_url}/logs?tab=runs&status=failed" if s.admin_url else None
         rows = [[E.e(f"{times}×"), E.e(error)] for error, times in s.run_errors]
@@ -213,7 +222,7 @@ def render_html(s: Summary) -> str:
                 if s.held_not_tested else "")
         content = E.table(["Reference", "Client", "Why"], po_rows(s.held)) if s.held else ""
         body.append(E.card("On hold until the job is submitted", content, "info", len(s.held) or None, note))
-    if not (s.problems or s.failed_runs or s.open_orders or s.held):
+    if not (s.problems or s.changed or s.failed_runs or s.open_orders or s.held):
         body.append(E.card("Nothing is stuck", E.message("No problems, nothing waiting for stock and nothing on hold "
                                                           "for active clients."), "success"))
     if s.not_set_up:

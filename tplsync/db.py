@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     alerted_error  TEXT,
     job_submitted_at TEXT,          -- when this tool first saw the PO's job in a "send" status
     client_name    TEXT,            -- the Syncore client group's name, for display
+    sent_snapshot  TEXT,            -- JSON: lines, Ship Via and ship-to as sent to 3PL Central
+    changed_at     TEXT,            -- set when the PO changed in Syncore after it was sent (cleared when reviewed)
+    change_summary TEXT,
+    change_signature TEXT,
     updated_at     TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS allowed_skus (       -- client SKUs sent even without INV/OD in them
@@ -191,6 +195,8 @@ class Database:
         self.conn.executescript(SCHEMA)
         self._add_column("purchase_orders", "job_submitted_at", "TEXT")
         self._add_column("purchase_orders", "client_name", "TEXT")
+        for column in ("sent_snapshot", "changed_at", "change_summary", "change_signature"):
+            self._add_column("purchase_orders", column, "TEXT")
 
     def _add_column(self, table: str, column: str, kind: str) -> None:
         if column not in {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}:
@@ -273,6 +279,8 @@ class Database:
             where.append("p.state IN ('error', 'failed')")
         elif state == "done":
             where.append("p.state = 'done' AND p.completion = 'completed'")
+        elif state == "changed":
+            where.append("p.changed_at IS NOT NULL")
         elif state == "waiting":
             where.append("p.state IN ('waiting', 'held', 'processing')")
         elif state:
@@ -285,6 +293,11 @@ class Database:
         if where:
             sql += " WHERE " + " AND ".join(where)
         return self.conn.execute(sql + " ORDER BY p.updated_at DESC LIMIT ?", (*params, limit)).fetchall()
+
+    def sent_recently(self, since: str) -> List[sqlite3.Row]:
+        """POs with a 3PL order, sent since the given time (for the daily check that they still exist)."""
+        return self.conn.execute("SELECT * FROM purchase_orders WHERE order_id IS NOT NULL AND state = 'done' "
+                                 "AND first_seen >= ? ORDER BY job_id", (since,)).fetchall()
 
     def po_view(self, po_id: int) -> Optional[sqlite3.Row]:
         """One PO with its client's name (from the Clients page where linked)."""
@@ -309,7 +322,8 @@ class Database:
               SUM(state = 'done' AND completion = 'completed') AS completed,
               SUM(completion = 'open_short') AS open_short,
               SUM(state IN ('error', 'failed')) AS problems,
-              SUM(state IN ('waiting', 'held', 'processing')) AS pending
+              SUM(state IN ('waiting', 'held', 'processing')) AS pending,
+              SUM(changed_at IS NOT NULL) AS changed
             FROM purchase_orders""").fetchone()
         return {k: row[k] or 0 for k in row.keys()}
 

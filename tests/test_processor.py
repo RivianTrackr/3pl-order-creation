@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -498,3 +499,60 @@ def test_po_with_unreadable_lines_still_names_its_client(env):
     proc.run(NOW)
     row = db.po_view(900)
     assert row["state"] == "error" and row["client_display"] == "Client Inc"
+
+
+def _edit(po, minute):
+    po["last_modified_date"] = f"2026-09-17 13:{minute:02d}:00"
+
+
+def test_po_edited_after_it_was_sent_alerts_once(env):
+    po = make_po()
+    proc, db, syncore, tpl, notifier = env([po])
+    proc.run(NOW)
+    assert db.get(900)["state"] == "done" and json.loads(db.get(900)["sent_snapshot"])["lines"] == {"SHIRT-INV": 10.0}
+    notifier.sent.clear()
+
+    _edit(po, 1)                                         # accounting-style edit: nothing that was sent changed
+    proc.run(NOW)
+    assert notifier.sent == [] and db.get(900)["changed_at"] is None
+
+    po["line_items"][0]["quantity"] = 12                 # quantity changed after sending
+    po["ship_via"] = "UPS 2nd Day Air"
+    _edit(po, 2)
+    proc.run(NOW)
+    subject, lines = notifier.sent[-1]
+    assert subject == "[3PL] 12345-3 changed in Syncore after it was sent"
+    assert "  - SHIRT-INV quantity 10 -> 12" in lines
+    assert any("Ship Via changed" in line for line in lines)
+    assert "What changed" in notifier.html
+    row = db.get(900)
+    assert row["changed_at"] and "SHIRT-INV quantity 10 -> 12" in row["change_summary"]
+    assert [r["po_id"] for r in db.recent(10, state="changed")] == [900]
+    assert len(tpl.created) == 1                          # the 3PL order isn't touched
+
+    _edit(po, 3)                                         # edited again, same differences: no second email
+    proc.run(NOW)
+    assert len(notifier.sent) == 1
+
+
+def test_po_deleted_after_it_was_sent_is_noticed_by_the_daily_check(env):
+    proc, db, syncore, tpl, notifier = env([make_po()])
+    proc.run(NOW)
+    notifier.sent.clear()
+    del syncore.pos[900]                                 # deleted in Syncore: it no longer shows up in searches
+    db.set_meta("sent_check_on", None)
+    proc.run(NOW)
+    assert "no longer exists in Syncore" in db.get(900)["change_summary"]
+    assert notifier.sent[-1][0] == "[3PL] 12345-3 changed in Syncore after it was sent"
+
+
+def test_po_sent_before_snapshots_takes_a_quiet_baseline(env):
+    po = make_po()
+    proc, db, syncore, tpl, notifier = env([po])
+    proc.run(NOW)
+    db.upsert(900, 12345, sent_snapshot=None)            # as if sent before this feature existed
+    notifier.sent.clear()
+    po["line_items"][0]["quantity"] = 12
+    _edit(po, 5)
+    proc.run(NOW)
+    assert notifier.sent == [] and json.loads(db.get(900)["sent_snapshot"])["lines"] == {"SHIRT-INV": 12.0}

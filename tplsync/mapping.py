@@ -262,3 +262,34 @@ def find_shortages(lines: Dict[str, float], order: dict, summaries: List[dict],
         if have < qty:
             shortages.append({"sku": sku, "ordered": qty, "available": have})
     return shortages
+
+
+def _address(ship_to: Optional[dict]) -> str:
+    t = ship_to or {}
+    parts = [t.get(k) for k in ("business_name", "name", "address1", "address2", "city", "state", "zip")]
+    return " ".join(" ".join(str(x).split()) for x in parts if x)
+
+
+def snapshot(po: dict, lines: Dict[str, float]) -> dict:
+    """What was sent to 3PL Central for a PO, to notice later edits in Syncore."""
+    return {"lines": {sku: float(qty) for sku, qty in lines.items()},
+            "ship_via": " ".join(str(po.get("ship_via") or "").split()),
+            "ship_to": _address(po.get("ship_to"))}
+
+
+def snapshot_changes(sent: dict, now: dict) -> List[str]:
+    """Plain-English differences between what was sent and the PO as it is now."""
+    changes = []
+    before, after = sent.get("lines") or {}, now.get("lines") or {}
+    for sku in sorted(set(before) | set(after)):
+        a, b = before.get(sku), after.get(sku)
+        if a is None:
+            changes.append(f"{sku} added (qty {b:g})")
+        elif b is None:
+            changes.append(f"{sku} removed (was qty {a:g})")
+        elif float(a) != float(b):
+            changes.append(f"{sku} quantity {a:g} -> {b:g}")
+    for key, label in (("ship_via", "Ship Via"), ("ship_to", "Ship-to address")):
+        if (sent.get(key) or "").casefold() != (now.get(key) or "").casefold():
+            changes.append(f"{label} changed from \"{sent.get(key) or '-'}\" to \"{now.get(key) or '-'}\"")
+    return changes

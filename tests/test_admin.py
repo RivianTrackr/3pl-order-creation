@@ -400,3 +400,17 @@ def test_dashboard_shows_client_and_searches(client, boot):
     assert "77700-1" in client.get("/?q=77700").text
     po_page = client.get("/po/501").text
     assert "Centurion" in po_page and "Dismiss" in po_page and "Retry" in po_page
+
+
+def test_changed_after_send_shows_and_can_be_marked_reviewed(client, boot):
+    login(client)
+    db = Database(boot.db_path)
+    db.upsert(601, 77900, state="done", reference="77900-1", order_id=202000, completion="completed",
+              changed_at="2026-10-19T15:00:00", change_summary="SHIRT-INV quantity 10 -> 12", change_signature="x")
+    assert "Changed in Syncore" in client.get("/").text            # badge on the dashboard
+    assert "77900-1" in client.get("/?state=changed").text
+    page = client.get("/po/601").text
+    assert "SHIRT-INV quantity 10 -&gt; 12" in page and "Mark reviewed" in page
+    client.post("/po/601/reviewed", data={"_csrf": csrf(client, "/po/601")})
+    assert db.get(601)["changed_at"] is None and db.get(601)["change_signature"] == "x"
+    assert "77900-1" not in client.get("/?state=changed").text

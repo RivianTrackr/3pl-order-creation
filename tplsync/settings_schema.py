@@ -90,6 +90,9 @@ SETTINGS: Tuple[SettingDef, ...] = (
     SettingDef("EMAIL_CLIENT_PAUSED", "PO for a paused client", "emails", "bool", default="false",
                help="A PO arrived for a client that's paused on the Clients page. It's sent automatically once "
                     "the client is activated."),
+    SettingDef("EMAIL_CHANGED_AFTER_SEND", "PO changed after it was sent", "emails", "bool", default="true",
+               help="A PO's SKUs, quantities, Ship Via or ship-to changed in Syncore (or the PO was deleted) after "
+                    "its 3PL order was created. Accounting edits don't count."),
     SettingDef("EMAIL_RUN_FAILURES", "Runs failing, and back to normal", "emails", "bool", default="true",
                help="Scheduled runs failed 3 times in a row (e.g. an API key was rejected), so no POs are being sent. "
                     "One email when it starts and one when runs work again."),

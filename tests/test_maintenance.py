@@ -120,3 +120,14 @@ def test_failing_runs_count_as_one_thing_and_say_why(env):  # noqa: F811
     assert subject.endswith("- 1 needs attention")
     assert "RUNS FAILING: 128 of 131" in "\n".join(lines) and "96x  Syncore GET" in "\n".join(lines)
     assert "Runs failing" in notifier.html and "1 thing needs attention" in notifier.html
+
+
+def test_summary_lists_pos_changed_after_sending(env):  # noqa: F811
+    proc, db, syncore, tpl, notifier = env([make_po()])
+    db.upsert(960, 77900, state="done", reference="77900-1", order_id=202000, client_id="5001",
+              changed_at="2026-09-18T10:00:00", change_summary="SHIRT-INV quantity 10 -> 12")
+    maintenance.send_summary(db, proc.s, notifier, MORNING)
+    subject, lines = notifier.sent[-1]
+    assert subject.endswith("- 1 needs attention")
+    assert "77900-1 | Client Inc | 3PL order 202000: SHIRT-INV quantity 10 -> 12" in "\n".join(lines)
+    assert "Changed in Syncore after it was sent" in notifier.html

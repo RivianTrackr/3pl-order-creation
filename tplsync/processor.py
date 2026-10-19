@@ -16,6 +16,7 @@ Every step is written to the events table so the admin Logs page can show a
 timeline per PO and per run.
 """
 
+import hashlib
 import json
 import logging
 import re
@@ -210,6 +211,7 @@ class Processor:
 
         if self.s.auto_complete_open:
             self.complete_open_orders()
+        self.check_sent_pos_exist_if_due(now)
 
         # Resume anything still in flight that fell out of the search window.
         for row in self.db.active():
@@ -273,6 +275,10 @@ class Processor:
     def handle(self, po_id: int, job_id: int, last_modified: Optional[str], now: datetime,
                force: bool = False) -> None:
         rec = self.db.get(po_id)
+        if rec is not None and rec["state"] == "done" and rec["order_id"] and not force and last_modified \
+                and rec["last_modified"] and last_modified != rec["last_modified"]:
+            self._check_sent_po(rec, po_id, job_id, last_modified)   # edited in Syncore after it was sent
+            return
         if rec is not None and rec["state"] in ("done", "failed", "dismissed") and not force:
             return
 
@@ -303,6 +309,77 @@ class Processor:
                        f"Skipped: {exc.args[0]}", exc.args[2] if len(exc.args) > 2 else None)
         except Exception as exc:  # noqa: BLE001 - every failure is recorded and alerted
             self._record_error(po_id, job_id, exc)
+
+    # --- POs that change after they were sent -----------------------------------
+
+    SENT_CHECK_DAYS = 14
+
+    def check_sent_pos_exist_if_due(self, now: datetime) -> None:
+        """Once a day, make sure POs sent in the last two weeks still exist in Syncore. A deleted PO never
+        shows up in the search for changed POs, so this is the only way to notice it. Never fails a run."""
+        today = now.strftime("%Y-%m-%d")
+        if self.db.get_meta("sent_check_on") == today:
+            return
+        since = (now - timedelta(days=self.SENT_CHECK_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
+        try:
+            for rec in self.db.sent_recently(since):
+                if self.syncore.get_purchase_order(rec["job_id"], rec["po_id"]) is None:
+                    self._check_sent_po(rec, rec["po_id"], rec["job_id"], rec["last_modified"], deleted=True)
+            self.db.set_meta("sent_check_on", today)
+        except Exception:  # noqa: BLE001
+            log.exception("Could not check that sent POs still exist in Syncore")
+
+    def _check_sent_po(self, rec, po_id: int, job_id: int, last_modified: Optional[str],
+                       deleted: bool = False) -> None:
+        """A PO that already has a 3PL order was edited (or deleted) in Syncore. Alert if what was sent - the
+        SKUs and quantities, Ship Via or ship-to - is different now. Accounting edits change nothing here."""
+        ref = rec["reference"] or f"PO id {po_id}"
+        try:
+            po = None if deleted else self.syncore.get_purchase_order(job_id, po_id, fresh=True)
+            sent = json.loads(rec["sent_snapshot"]) if rec["sent_snapshot"] else None
+            if po is None:
+                changes = ["The PO no longer exists in Syncore: it was deleted or cancelled after the 3PL order "
+                           "was created"]
+            else:
+                try:
+                    current = mapping.snapshot(po, mapping.order_lines(po, self.s.sku_pattern, self._all_allowed()))
+                except mapping.LineMappingError as exc:
+                    current, changes = None, [f"The PO's lines can't be read any more: {exc}"]
+                if current is not None:
+                    if sent is None:
+                        # Sent before snapshots were kept: today's PO becomes the baseline, quietly.
+                        if not self.s.dry_run:
+                            self.db.upsert(po_id, job_id, sent_snapshot=json.dumps(current),
+                                           last_modified=last_modified)
+                        return
+                    changes = mapping.snapshot_changes(sent, current)
+            if not self.s.dry_run:
+                self.db.upsert(po_id, job_id, last_modified=last_modified)
+            if not changes:
+                return                                   # e.g. an accounting edit
+            summary = "; ".join(changes)
+            signature = hashlib.sha1(summary.encode()).hexdigest()
+            if signature == rec["change_signature"]:
+                return                                   # already reported this exact change
+            self.stats["changed"] += 1
+            self.event(po_id, job_id, ref, "warning", "po.changed_after_send",
+                       f"Changed in Syncore after 3PL order {rec['order_id']} was created: {summary}",
+                       {"changes": changes, "sent": sent, "order_id": rec["order_id"]})
+            if self.s.dry_run:
+                return
+            self.db.upsert(po_id, job_id, changed_at=utcnow(), change_summary=summary, change_signature=signature)
+            view = self.db.po_view(po_id)
+            client = view["client_display"] if view else None
+            lines = [f"{ref} was changed in Syncore after its 3PL Central order ({rec['order_id']}) was created. "
+                     "The 3PL order was not changed, so check it with the warehouse.", "", "What changed:"]
+            lines += [f"  - {c}" for c in changes]
+            self._send_alert(po_id, job_id, ref, f"[3PL] {ref} changed in Syncore after it was sent", lines,
+                             "changed_after_send",
+                             emails.changed_email(admin_url=self.s.admin_url, po_id=po_id, job_id=job_id,
+                                                  reference=ref, client=client, order_id=rec["order_id"],
+                                                  changes=changes))
+        except Exception:  # noqa: BLE001 - never let this stop the run
+            log.exception("Could not check sent PO %s for changes", po_id)
 
     def _still_held(self, job_id: int) -> bool:
         """Whether a held PO's job is still in a status that waits. One cheap job lookup instead of
@@ -480,7 +557,8 @@ class Processor:
                 self.stats["created"] += 1
                 self.event(po_id, job_id, ref, "info", "order.created",
                            f"Created 3PL order {order_id} for {creds.name}", {"order_id": order_id, "payload": payload})
-            self.db.upsert(po_id, job_id, order_id=order_id)
+            self.db.upsert(po_id, job_id, order_id=order_id,
+                           sent_snapshot=json.dumps(mapping.snapshot(po, po_lines)))
 
         # Step 4: complete, or leave open when stock is short
         completion = rec["completion"] if rec else None

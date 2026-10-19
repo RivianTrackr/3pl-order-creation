@@ -223,7 +223,7 @@ def create_app(boot: Bootstrap) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def dashboard(request: Request, state: Optional[str] = None, q: str = "", db: Database = Depends(get_db)):
         values = setting_values(db, box)
-        if state not in (None, "", "done", "problems", "waiting", "open_short", "skipped", "dismissed"):
+        if state not in (None, "", "done", "problems", "waiting", "open_short", "skipped", "dismissed", "changed"):
             state = None
         checklist = [
             ("Settings complete", not missing_required(values), "/settings"),
@@ -231,7 +231,8 @@ def create_app(boot: Bootstrap) -> FastAPI:
             ("Go-live date set", bool(db.get_meta("start_date")), None),
         ]
         return render(request, db, "dashboard.html",
-                      rows=db.recent(100, state=state or None, include_skipped=state in ("skipped", "dismissed"),
+                      rows=db.recent(100, state=state or None,
+                                     include_skipped=state in ("skipped", "dismissed", "changed"),
                                      q=q[:60]),
                       counts=db.counts(), state=state or "", q=q[:60], checklist=checklist,
                       setup_done=all(ok for _, ok, _ in checklist),
@@ -251,6 +252,15 @@ def create_app(boot: Bootstrap) -> FastAPI:
         db.audit(username(request), "po.retry", str(po_id))
         from_detail = urlparse(request.headers.get("referer", "")).path == f"/po/{po_id}"
         return redirect(f"/po/{po_id}" if from_detail else "/", f"PO {po_id} will be processed on the next run.")
+
+    @app.post("/po/{po_id}/reviewed", dependencies=[Depends(csrf_protect)])
+    def po_reviewed(request: Request, po_id: int, db: Database = Depends(get_db)):
+        row = db.get(po_id)
+        if not row:
+            raise HTTPException(404, "Purchase order not found.")
+        db.upsert(po_id, row["job_id"], changed_at=None)    # the signature stays, so the same change isn't re-sent
+        db.audit(username(request), "po.change_reviewed", f"{row['reference'] or po_id}: {row['change_summary']}")
+        return redirect(f"/po/{po_id}", "Marked as reviewed.")
 
     @app.post("/po/{po_id}/dismiss", dependencies=[Depends(csrf_protect)])
     def dismiss_po(request: Request, po_id: int, db: Database = Depends(get_db)):
