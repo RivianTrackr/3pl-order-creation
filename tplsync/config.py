@@ -113,6 +113,7 @@ class Settings:
     ignore_job_statuses: Tuple[str, ...] = ("delivered", "completed")
     emails: Dict[str, bool] = field(default_factory=lambda: dict(EMAIL_DEFAULTS))
     admin_url: str = ""
+    on_demand_sku: str = ""
 
     clients: Dict[str, TplClient] = field(default_factory=dict)
     shipping_map: Dict[str, dict] = field(default_factory=dict)
@@ -212,6 +213,7 @@ def load_settings(db: Database, box: SecretBox, db_path: str, require_complete: 
         emails={kind: (v[f"EMAIL_{kind.upper()}"] or str(on).lower()) == "true"
                 for kind, on in EMAIL_DEFAULTS.items()},
         admin_url=v["ADMIN_URL"] or "",
+        on_demand_sku=(v["ON_DEMAND_SKU"] or "").strip(),
         job_statuses=status_list(v["SYNCORE_JOB_STATUSES"]),
         ignore_job_statuses=status_list(v["SYNCORE_JOB_STATUSES_IGNORE"]),
         clients=clients,

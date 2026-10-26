@@ -230,8 +230,8 @@ class Processor:
                 tpl = self.tpl(creds)
                 order, _ = tpl.get_order(order_id)
                 lines = order_items(order)
-                shortages = mapping.find_shortages(lines, order, tpl.stock_for_order(order_id),
-                                                   self.s.tpl_facility_id)
+                shortages = self._real_shortages(mapping.find_shortages(lines, order, tpl.stock_for_order(order_id),
+                                                   self.s.tpl_facility_id))
                 if shortages:
                     self.stats["still_open"] += 1
                     continue
@@ -388,7 +388,8 @@ class Processor:
                            "was created"]
             else:
                 try:
-                    current = mapping.snapshot(po, mapping.order_lines(po, self.s.sku_pattern, self._all_allowed()))
+                    current = mapping.snapshot(po, mapping.order_lines(po, self.s.sku_pattern, self._all_allowed(),
+                                                                       on_demand=bool(self.s.on_demand_sku)))
                 except mapping.LineMappingError as exc:
                     current, changes = None, [f"The PO's lines can't be read any more: {exc}"]
                 if current is not None:
@@ -478,7 +479,8 @@ class Processor:
             self.db.upsert(po_id, job_id, reference=ref)
         supplier = (po.get("supplier") or {}).get("name")
         try:
-            lines = mapping.order_lines(po, self.s.sku_pattern, self._all_allowed())
+            lines = mapping.order_lines(po, self.s.sku_pattern, self._all_allowed(),
+                                        on_demand=bool(self.s.on_demand_sku))
         except mapping.LineMappingError:
             if not mapping.is_vendor(po, self.s.vendor_name):
                 raise SkipPO(f"vendor is {supplier!r}, not {self.s.vendor_name!r}", ref)
@@ -533,9 +535,9 @@ class Processor:
             raise SkipPO(f"Syncore client {client_id} ({client_label}) isn't in a client group, so it can't be "
                          f"matched to a 3PL Central client", ref, {"syncore_client": client_id})
         row = self.db.link_syncore_group(group_id, group_name)
+        mine = self.db.allowed_skus_by_client().get(row["id"], set())
         if order_id is None:
             # An allowed SKU only counts for the client it was allowed for.
-            mine = self.db.allowed_skus_by_client().get(row["id"], set())
             pattern = re.compile(self.s.sku_pattern)
             others = [sku for sku in lines if not pattern.search(sku) and sku.casefold() not in mine]
             for sku in others:
@@ -556,6 +558,20 @@ class Processor:
         tpl = self.tpl(creds)
 
         po_lines = dict(lines)
+        on_demand_notes = []
+        if self.s.on_demand_sku:
+            # On-demand products go to 3PL Central as the one generic item, described in Warehouse Instructions.
+            od_items = mapping.on_demand_items(po, self.s.sku_pattern, self._all_allowed(), exempt=mine)
+            od_items = [i for i in od_items if i["sku"] in lines]
+            if od_items:
+                for item in od_items:
+                    del lines[item["sku"]]
+                lines[self.s.on_demand_sku] = lines.get(self.s.on_demand_sku, 0.0) + sum(i["qty"] for i in od_items)
+                on_demand_notes = [mapping.on_demand_note(od_items, self.s.on_demand_sku)]
+                if not (rec and rec["order_id"]):
+                    self.event(po_id, job_id, ref, "info", "po.on_demand",
+                               f"{len(od_items)} on-demand item(s) sent as {self.s.on_demand_sku}: "
+                               f"{', '.join(i['sku'] for i in od_items)}", {"items": od_items})
         try:
             lines, renames = skus.resolve_lines(lines, self.client_items(tpl), creds.name)
         except skus.SkuMatchError as exc:
@@ -578,7 +594,8 @@ class Processor:
             })
             raise
         payload = mapping.build_order(po, job, lines, creds.customer_id, self.s.tpl_facility_id,
-                                      self.s.tpl_facility_name, {**routing.as_payload(), "billingCode": routing.billing_code})
+                                      self.s.tpl_facility_name, {**routing.as_payload(), "billingCode": routing.billing_code},
+                                      extra_notes=on_demand_notes)
         self.event(po_id, job_id, ref, "info", "po.matched",
                    f"Syncore client {client_id} ({client_label}, group {group_name}) uses 3PL client {creds.name} "
                    f"(customer {creds.customer_id}); {routing.explanation}",
@@ -619,7 +636,7 @@ class Processor:
         if completion is None:
             order, _ = tpl.get_order(order_id)
             summaries = tpl.stock_for_order(order_id)
-            shortages = mapping.find_shortages(lines, order, summaries, self.s.tpl_facility_id)
+            shortages = self._real_shortages(mapping.find_shortages(lines, order, summaries, self.s.tpl_facility_id))
             self.event(po_id, job_id, ref, "warning" if shortages else "info", "stock.checked",
                        (f"Stock check: {len(shortages)} of {len(lines)} SKU(s) short" if shortages
                         else f"Stock check: all {len(lines)} SKU(s) available"),
@@ -669,6 +686,11 @@ class Processor:
         self.event(po_id, job_id, ref, "info", "alert.sent",
                    f"{'Dry run: alert not sent' if self.s.dry_run else 'Alert emailed'} to {self.notifier.email_to}: {subject}")
         return True
+
+    def _real_shortages(self, shortages: list) -> list:
+        """The generic on-demand item isn't kept in stock, so it never counts as short."""
+        od = self.s.on_demand_sku.casefold()
+        return [s for s in shortages if not od or str(s["sku"]).casefold() != od]
 
     def _alert_paused(self, po_id: int, job_id: int, ref: Optional[str], reason: str) -> None:
         """'PO for a paused client' email (off by default in Settings > Emails)."""

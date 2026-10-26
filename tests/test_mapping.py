@@ -1,3 +1,5 @@
+import pytest
+
 from tplsync import mapping
 
 
@@ -196,3 +198,94 @@ def test_sku_lines_under_different_products_in_one_po():
          "description": "SKU: BAL528INV-59838-24227"},
     ]}
     assert dict(order_lines(po, "INV|OD")) == {"BAL513OD-3": 1, "BAL528INV-59838-24227": 1}
+
+
+# --- on-demand items (shapes taken from real Baker POs) -------------------------------------------
+
+def _po(*rows):
+    keys = ("line_id", "parent_id", "type", "sku", "quantity", "description")
+    return {"line_items": [dict(zip(keys, r)) for r in rows]}
+
+
+PO_77828_3 = _po(
+    (1, 0, "Comment", "", 0, "ON DEMAND FROM JUST INK"),
+    (2, None, "Comment", "TM18501", 0, "Men's Tyndall Poly Microfleece Vest"),
+    (3, None, "Comment", "", 0, "SKU: BAL513OD-3"),
+    (4, 1, "Color", "", 0, "Navy"),
+    (5, 4, "Size", "", 1, "Large"),
+    (6, 0, "Comment", "", 0, "INVENTORY"),
+    (7, None, "Comment", "ME0XK00E", 1, "Peter Millar Men's Performance Solid Jersey Polo -  LRG - Navy"),
+    (8, None, "Comment", "", 0, "SKU: BAL528INV-59838-24227"),
+)
+
+
+def test_on_demand_items_get_product_colour_and_size():
+    from tplsync.mapping import on_demand_items, on_demand_note
+    items = on_demand_items(PO_77828_3, "INV|OD")
+    assert [i["sku"] for i in items] == ["BAL513OD-3"]                 # the INV polo stays an inventory item
+    assert items[0]["product"] == "Men's Tyndall Poly Microfleece Vest" and items[0]["code"] == "TM18501"
+    assert items[0]["variants"] == [("Navy / Large", 1.0)]
+    assert on_demand_note(items, "ONDEMAND123") == ("ON DEMAND (sent as ONDEMAND123): Men's Tyndall Poly Microfleece "
+                                                    "Vest (TM18501) - Navy / Large x1 [PO SKU BAL513OD-3]")
+
+
+def test_on_demand_sku_lines_that_name_their_size():
+    """77632-5: two sock sizes under one Printify heading, each with its own SKU line, Item Value notes between."""
+    from tplsync.mapping import on_demand_items, order_lines
+    po = _po(
+        (1, 0, "Comment", "", 0, "ON DEMAND FROM Printify ****"),
+        (2, None, "Comment", "SP50029 / Spoke Cust", 0, "Socks"),
+        (3, 1, "Color", "", 0, "White"),
+        (4, 3, "Size", "", 1, "Small"),
+        (5, None, "Comment", "", 0, "SKU: WDT037OD-SMALL-WHITE"),
+        (6, None, "Comment", "", 0, "Item Cost : $10.24"),
+        (7, 3, "Size", "", 2, "Large"),
+        (8, None, "Comment", "", 0, "SKU: WDT037OD-LARGE-WHITE"),
+    )
+    assert dict(order_lines(po, "INV|OD", on_demand=True)) == {"WDT037OD-SMALL-WHITE": 1, "WDT037OD-LARGE-WHITE": 2}
+    items = on_demand_items(po, "INV|OD")
+    assert [(i["product"], i["variants"]) for i in items] == [("Socks", [("White / Small", 1.0)]),
+                                                              ("Socks", [("White / Large", 2.0)])]
+
+
+def test_on_demand_quantity_on_the_line_after_the_sku():
+    """77476-3: 'SKU: WWD109OD-BLACK' followed by a 'Black' line carrying the quantity."""
+    from tplsync.mapping import on_demand_items, order_lines
+    po = _po(
+        (1, None, "Comment", "97030 / OrigAudio", 0, "ON DEMAND FROM OrigAudio ****"),
+        (2, None, "Comment", "", 0, "Slater Tote Bag"),
+        (3, None, "Comment", "", 0, "SKU: WWD109OD-BLACK"),
+        (4, None, "Comment", "", 1, "Black"),
+    )
+    with pytest.raises(mapping.LineMappingError):
+        order_lines(po, "INV|OD")                                       # the old reading couldn't place it
+    assert dict(order_lines(po, "INV|OD", on_demand=True)) == {"WWD109OD-BLACK": 1}
+    assert on_demand_items(po, "INV|OD")[0]["variants"] == [("Black", 1.0)]
+
+
+def test_several_sizes_under_one_on_demand_sku_are_added_up():
+    from tplsync.mapping import on_demand_items, order_lines
+    po = _po(
+        (1, 0, "Comment", "", 0, "<b>***ONDEMAND FROM JIT***</b>"),
+        (2, None, "Comment", "", 0, "Vest"),
+        (3, None, "Comment", "", 0, "SKU: ABC123OD-1"),
+        (4, 1, "Color", "", 0, "Navy"),
+        (5, 4, "Size", "", 2, "L"),
+        (6, 4, "Size", "", 3, "XL"),
+    )
+    with pytest.raises(mapping.LineMappingError, match="covers 2 colors/sizes"):
+        order_lines(po, "INV|OD")
+    assert dict(order_lines(po, "INV|OD", on_demand=True)) == {"ABC123OD-1": 5}
+    assert on_demand_items(po, "INV|OD")[0]["variants"] == [("Navy / L", 2.0), ("Navy / XL", 3.0)]
+
+
+def test_what_counts_as_on_demand():
+    from tplsync.mapping import is_on_demand
+    items = [{"line_id": 1, "parent_id": 0, "description": "<b>***ON DEMAND FROM HPG***</b>"},
+             {"line_id": 2, "parent_id": None, "description": "SKU: X"}]
+    assert is_on_demand(items, 1, "WT072ODJ-45")                         # OD/ODJ after the style number
+    assert is_on_demand(items, 1, "JI-NOTEBOOK")                         # under an ON DEMAND heading
+    assert not is_on_demand(items, 1, "PHU563INV")                       # INV is always inventory
+    assert not is_on_demand(items, 1, "WDT004OD-BLACK", exempt={"wdt004od-black"})   # an Allowed SKU
+    plain = [{"line_id": 1, "parent_id": 0, "description": "INVENTORY"}, {"line_id": 2, "parent_id": None}]
+    assert not is_on_demand(plain, 1, "JI-OD-7") and not is_on_demand(plain, 1, "GOODS-1")

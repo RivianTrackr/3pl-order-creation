@@ -608,3 +608,34 @@ def test_po_for_a_paused_client_is_on_hold_not_an_error(env):
     proc.s.clients["5001"] = CLIENT                                   # activated
     proc.run(NOW)
     assert db.get(900)["state"] == "done" and len(tpl.created) == 1
+
+
+def test_on_demand_items_go_out_as_the_generic_sku_with_details_in_the_notes(env):
+    import dataclasses
+    po = make_po()
+    po["line_items"] = [
+        {"line_id": 1, "parent_id": 0, "description": "ON DEMAND FROM JUST INK", "quantity": 0},
+        {"line_id": 2, "parent_id": None, "sku": "TM18501", "description": "Men's Tyndall Vest", "quantity": 0},
+        {"line_id": 3, "parent_id": None, "description": "SKU: BAL513OD-3", "quantity": 0},
+        {"line_id": 4, "parent_id": 1, "type": "Color", "description": "Navy", "quantity": 0},
+        {"line_id": 5, "parent_id": 4, "type": "Size", "description": "Large", "quantity": 2},
+        {"line_id": 6, "parent_id": 0, "description": "INVENTORY", "quantity": 0},
+        {"line_id": 7, "parent_id": None, "sku": "ME0XK00E", "description": "Polo", "quantity": 1},
+        {"line_id": 8, "parent_id": None, "description": "SKU: SHIRT-INV", "quantity": 0},
+    ]
+    proc, db, syncore, tpl, notifier = env([po])
+    proc.s = dataclasses.replace(proc.s, on_demand_sku="ONDEMAND123")
+    tpl.items.append({"sku": "ONDEMAND123", "description": "On Demand Item"})
+    stock = tpl.stock_for_order
+    tpl.stock_for_order = lambda oid: [s if s["itemIdentifier"]["sku"] != "ONDEMAND123" else {**s, "available": 0}
+                                       for s in stock(oid)]          # never stocked: not a shortage
+    proc.run(NOW)
+
+    order = tpl.created[0]
+    assert order["orderItems"] == [{"itemIdentifier": {"sku": "SHIRT-INV"}, "qty": 1},
+                                   {"itemIdentifier": {"sku": "ONDEMAND123"}, "qty": 2}]
+    assert "ON DEMAND (sent as ONDEMAND123): Men's Tyndall Vest (TM18501) - Navy / Large x2 [PO SKU BAL513OD-3]" \
+        in order["notes"]
+    assert not order.get("shippingNotes")
+    assert tpl.completed == [5000] and notifier.sent == []
+    assert any(e["event"] == "po.on_demand" for e in db.list_events(po_id=900))

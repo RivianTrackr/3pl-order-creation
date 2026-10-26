@@ -49,6 +49,11 @@ SETTINGS: Tuple[SettingDef, ...] = (
                help="The warehouse in 3PL Central that orders are created for, exactly as it's named there."),
     SettingDef("TPL_FACILITY_ID", "Warehouse ID", "tpl", "int",
                help="Optional. When set, used instead of the warehouse name."),
+    SettingDef("ON_DEMAND_SKU", "On-demand item SKU", "tpl", default="ONDEMAND123",
+               help="The generic item every program has in 3PL Central for on-demand products. PO lines with an "
+                    "OD SKU (e.g. BAL513OD-3) or under an \"ON DEMAND\" heading are sent as this item, with the "
+                    "product, colour and size in Warehouse Instructions. INV SKUs and Allowed SKUs keep their own SKU. "
+                    "Leave blank to send on-demand SKUs as they are."),
     SettingDef("TPL_BILLING_CODE", "Default billing code", "tpl", default="Prepaid",
                help="Prepaid, FreightCollect or BillThirdParty. Syncore POs don't carry a billing type. Carriers "
                     "that name these differently get their own equivalent, e.g. BillThirdParty is sent to a FedEx "
