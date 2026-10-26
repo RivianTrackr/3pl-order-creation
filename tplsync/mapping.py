@@ -30,12 +30,21 @@ class LineMappingError(ValueError):
 
 
 SKU_TAG = re.compile(r"^\s*SKU\s*[:#]\s*(\S+)", re.IGNORECASE)
+# A description that is nothing but a code, e.g. "IPROX123OD" typed on its own line.
+_BARE_CODE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 
 
 def tagged_sku(line: dict) -> Optional[str]:
-    """The inventory SKU from a "SKU: ABC123" description, if the line has one."""
-    match = SKU_TAG.match(str(line.get("description") or ""))
-    return match.group(1).strip() if match else None
+    """The inventory SKU written in a comment line's description, if the line has one: "SKU: ABC123", or a line
+    that is just an INV/OD code ("IPROX123OD") with no quantity and nothing in its SKU field."""
+    text = str(line.get("description") or "").strip()
+    match = SKU_TAG.match(text)
+    if match:
+        return match.group(1).strip()
+    if (_BARE_CODE.match(text) and not str(line.get("sku") or "").strip() and _qty(line.get("quantity")) <= 0
+            and re.search(r"\d", text) and ("INV" in text.upper() or OD_SKU.search(text))):
+        return text
+    return None
 
 
 # Lines that describe a product's variants or decoration rather than a product.
@@ -44,6 +53,8 @@ DETAIL_TYPES = {"color", "size", "productcomment", "decorationmethod", "decorati
 
 # Comment lines that describe a product rather than name it ("Item Value : $67.89", "Item Cost : $10.24").
 _INFO_LINE = re.compile(r"^\s*(item\s+)?(value|cost|price)\s*:", re.IGNORECASE)
+# Colour and size typed as text ("Color: White", "Size: XL") instead of Syncore Color/Size lines.
+_DETAIL_TEXT = re.compile(r"^\s*(colou?r|size)\s*:\s*(.+)$", re.IGNORECASE)
 
 
 def _product_above(items: List[dict], index: int) -> Optional[dict]:
@@ -53,10 +64,34 @@ def _product_above(items: List[dict], index: int) -> Optional[dict]:
         if tagged_sku(line) or str(line.get("type") or "").replace(" ", "").casefold() in DETAIL_TYPES:
             continue
         text = str(line.get("description") or "").strip()
-        if (not text or _INFO_LINE.match(text)) and _qty(line.get("quantity")) <= 0:
+        if (not text or _INFO_LINE.match(text) or _DETAIL_TEXT.match(text)) and _qty(line.get("quantity")) <= 0:
             continue
         return line
     return None
+
+
+def _text_details(items: List[dict], index: int) -> List[str]:
+    """Colour/size texts right around the SKU line at items[index] that carry no quantity of their own:
+    "Color: White" / "Size: XL" comment lines, or Color/Size lines."""
+    def detail(line):
+        if _qty(line.get("quantity")) > 0:
+            return None
+        text = clean_text(line.get("description"))
+        if str(line.get("type") or "").casefold() in ("color", "size"):
+            return text or None
+        match = _DETAIL_TEXT.match(text)
+        return match.group(2).strip() if match else None
+
+    before, after = [], []
+    for line in reversed(items[:index]):
+        if (value := detail(line)) is None:
+            break
+        before.insert(0, value)
+    for line in items[index + 1:]:
+        if (value := detail(line)) is None:
+            break
+        after.append(value)
+    return before + after
 
 
 # On-demand items: an "OD" (or "ODJ") right after the style number, e.g. BAL513OD-3, WWD199OD-BLACK, WT072ODJ-45.
@@ -99,9 +134,10 @@ def on_demand_items(po: dict, sku_pattern: str, allowed=frozenset(), exempt=froz
         line = items[d["index"]]
         product = line if line.get("sku") and str(line.get("sku")).strip() == d["sku"] else d["product"] or line
         variants = []
+        typed = " / ".join(_text_details(items, d["index"]))
         for v, qty in d["variants"]:
             if v is line or v is product:
-                label = ""
+                label = typed                                  # "Color: White" / "Size: XL" lines, if any
             elif str(v.get("type") or "").casefold() in ("color", "size"):
                 label = " / ".join(_variant_parts(v, items))
             else:

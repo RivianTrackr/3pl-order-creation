@@ -289,3 +289,43 @@ def test_what_counts_as_on_demand():
     assert not is_on_demand(items, 1, "WDT004OD-BLACK", exempt={"wdt004od-black"})   # an Allowed SKU
     plain = [{"line_id": 1, "parent_id": 0, "description": "INVENTORY"}, {"line_id": 2, "parent_id": None}]
     assert not is_on_demand(plain, 1, "JI-OD-7") and not is_on_demand(plain, 1, "GOODS-1")
+
+
+def test_sku_typed_on_its_own_line_with_colour_and_size_as_text():
+    """77993-1: every line is a plain comment; the OD SKU is a bare description, colour and size are typed."""
+    from tplsync.mapping import on_demand_items, on_demand_note, order_lines, po_skus
+    po = _po(
+        (1, None, "Comment", "iprobox10x8x3", 2, "Mailing Box, B-Flute 10 x 8 x 3 - D - 240 sq in Full color"),
+        (2, None, "Comment", "", 0, " "),
+        (3, None, "Comment", "", 0, "ON DEMAND SKU:"),
+        (4, None, "Comment", "", 1, "Eddie Bauer Tshirt"),
+        (5, None, "Comment", "", 0, "IPROX123OD"),
+        (6, None, "Comment", "", 0, "Color: White"),
+        (7, None, "Comment", "", 0, "Size: XL"),
+    )
+    assert po_skus(po) == ["iprobox10x8x3", "IPROX123OD"]
+    assert dict(order_lines(po, "INV|OD")) == {"IPROX123OD": 1}
+    assert on_demand_note(on_demand_items(po, "INV|OD"), "ONDEMAND123") == \
+        "ON DEMAND (sent as ONDEMAND123): Eddie Bauer Tshirt - White / XL x1 [PO SKU IPROX123OD]"
+
+
+def test_inventory_sku_typed_under_each_product():
+    """77607-1 (Allvue): product line with the quantity, then its INV SKU as a bare description."""
+    from tplsync.mapping import order_lines
+    po = _po(
+        (1, 0, "Comment", "TM23804 / Snugz USA", 1, "Destin 16oz Double Wall Tumbler w Straw - Black"),
+        (2, None, "Comment", "", 0, "ALLVUE0031INV-47741"),
+        (3, 0, "Comment", "PED-676L / Journal Books", 2, "Pedova Journal - Large - Black"),
+        (4, None, "Comment", "", 0, "ALLVUE0032INV-47741"),
+    )
+    assert dict(order_lines(po, "INV|OD")) == {"ALLVUE0031INV-47741": 1, "ALLVUE0032INV-47741": 2}
+
+
+def test_words_that_are_not_skus():
+    from tplsync.mapping import tagged_sku
+    assert tagged_sku({"description": "INVENTORY"}) is None                      # a heading, no digits
+    assert tagged_sku({"description": "Check in under SKU:BKM522INV-56538"}) is None   # receiving note
+    assert tagged_sku({"description": "ABC123INV", "quantity": 4}) is None       # a product line with a quantity
+    assert tagged_sku({"description": "ABC123INV", "sku": "X1"}) is None         # has its own SKU field
+    assert tagged_sku({"description": "Size: XL"}) is None and tagged_sku({"description": "2XL"}) is None
+    assert tagged_sku({"description": " SKU: ABC123OD-3 "}) == "ABC123OD-3"
