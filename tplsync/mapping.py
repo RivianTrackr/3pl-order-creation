@@ -47,6 +47,18 @@ def tagged_sku(line: dict) -> Optional[str]:
     return None
 
 
+# A SKU written after a size/colour on its own Color/Size line: "Large-SKU: PHU015OD-BLACK-LARGE-1".
+_SKU_SUFFIX = re.compile(r"[\s:-]*\bSKU\s*[:#]\s*(\S+).*$", re.IGNORECASE)
+
+
+def variant_sku(line: dict) -> Optional[str]:
+    """The SKU on a Color/Size line that carries its own quantity and names its SKU ("Large-SKU: ABC123OD-L")."""
+    if str(line.get("type") or "").casefold() not in ("color", "size") or _qty(line.get("quantity")) <= 0:
+        return None
+    match = _SKU_SUFFIX.search(clean_text(line.get("description")))
+    return match.group(1).strip() if match else None
+
+
 # Lines that describe a product's variants or decoration rather than a product.
 DETAIL_TYPES = {"color", "size", "productcomment", "decorationmethod", "decorationcomment"}
 
@@ -136,10 +148,10 @@ def on_demand_items(po: dict, sku_pattern: str, allowed=frozenset(), exempt=froz
         variants = []
         typed = " / ".join(_text_details(items, d["index"]))
         for v, qty in d["variants"]:
-            if v is line or v is product:
-                label = typed                                  # "Color: White" / "Size: XL" lines, if any
-            elif str(v.get("type") or "").casefold() in ("color", "size"):
+            if str(v.get("type") or "").casefold() in ("color", "size"):
                 label = " / ".join(_variant_parts(v, items))
+            elif v is line or v is product:
+                label = typed                                  # "Color: White" / "Size: XL" lines, if any
             else:
                 label = clean_text(v.get("description"))      # e.g. a "Black" line after the SKU line
             variants.append((label, qty))
@@ -198,9 +210,14 @@ def order_lines(po: dict, sku_pattern: str, allowed=frozenset(), on_demand: bool
         lines[sku] = lines.get(sku, 0.0) + qty
 
     children: Dict[object, List[dict]] = {}
-    for li in items:
-        if li.get("parent_id"):
-            children.setdefault(li["parent_id"], []).append(li)
+    ids = {li.get("line_id") for li in items}
+    for i, li in enumerate(items):
+        parent = li.get("parent_id")
+        if parent and parent not in ids:
+            # Syncore can leave a Color/Size line pointing at a deleted line; it belongs to the product above it.
+            parent = next((p.get("line_id") for p in reversed(items[:i]) if p.get("parent_id") == 0), None)
+        if parent:
+            children.setdefault(parent, []).append(li)
 
     def leaves(line_id) -> List[dict]:
         """The Color/Size descendants that actually carry a quantity."""
@@ -215,15 +232,16 @@ def order_lines(po: dict, sku_pattern: str, allowed=frozenset(), on_demand: bool
 
     claimed = set()   # line ids whose quantity was used by a SKU line (groups, products, single colours/sizes)
 
-    # Layout 1: "SKU: ..." description lines.
+    # Layout 1: "SKU: ..." description lines, and Color/Size lines that name their SKU ("Large-SKU: ...").
     for index, li in enumerate(items):
-        sku = tagged_sku(li)
+        sku = tagged_sku(li) or variant_sku(li)
         if not sku or not wanted(sku):
             continue
         od = on_demand and is_on_demand(items, index, sku, allowed)
         product = _product_above(items, index)
         variants: List[tuple] = []
         if _qty(li.get("quantity")) > 0:
+            claimed.add(li.get("line_id"))
             variants = [(li, _qty(li.get("quantity")))]
         elif product is not None and _qty(product.get("quantity")) > 0 \
                 and not leaves(product.get("line_id")) and product.get("line_id") not in claimed:
@@ -288,7 +306,20 @@ def order_lines(po: dict, sku_pattern: str, allowed=frozenset(), on_demand: bool
                 details.append({"sku": sku, "index": items.index(li), "product": li,
                                 "variants": [(v, _qty(v.get("quantity"))) for v in found]
                                 or [(li, _qty(li.get("quantity")))]})
+
+    # Never send a PO without an on-demand item it names: a layout the rules above don't know stops the PO.
+    read = {sku.casefold() for sku in lines}
+    for li in items:
+        for match in _OD_CODE.finditer(clean_text(li.get("description"))):
+            code = match.group(0).strip("-")
+            if code.casefold() not in read and wanted(code):
+                raise LineMappingError(f"The PO mentions on-demand SKU {code} ({clean_text(li.get('description'))!r}), "
+                                       f"but its quantity couldn't be read. Put it on its own 'SKU: {code}' line under "
+                                       f"the product, or send this PO by hand.")
     return lines
+
+
+_OD_CODE = re.compile(r"[A-Za-z0-9-]*\dODJ?(?![A-Za-z])[A-Za-z0-9-]*")
 
 
 def _variant_parts(line: dict, items: List[dict]) -> List[str]:
@@ -297,7 +328,7 @@ def _variant_parts(line: dict, items: List[dict]) -> List[str]:
     parts, current = [], line
     while current is not None:
         if str(current.get("type") or "").casefold() in ("color", "size"):
-            parts.append(clean_text(current.get("description")))
+            parts.append(_SKU_SUFFIX.sub("", clean_text(current.get("description"))).strip())
         current = by_id.get(current.get("parent_id"))
     return [p for p in reversed(parts) if p]
 
@@ -321,7 +352,7 @@ def po_skus(po: dict) -> List[str]:
     """Every SKU on the PO, from SKU fields and "SKU:" descriptions (for logging)."""
     found = []
     for li in po.get("line_items") or []:
-        for value in (li.get("sku"), tagged_sku(li)):
+        for value in (li.get("sku"), tagged_sku(li), variant_sku(li)):
             if value and str(value).strip() not in found:
                 found.append(str(value).strip())
     return found

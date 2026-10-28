@@ -329,3 +329,49 @@ def test_words_that_are_not_skus():
     assert tagged_sku({"description": "ABC123INV", "sku": "X1"}) is None         # has its own SKU field
     assert tagged_sku({"description": "Size: XL"}) is None and tagged_sku({"description": "2XL"}) is None
     assert tagged_sku({"description": " SKU: ABC123OD-3 "}) == "ABC123OD-3"
+
+
+def test_sku_written_on_each_size_line():
+    """77962-3: "Large-SKU: PHU015OD-BLACK-LARGE-1" on the Size lines; these polos used to be dropped silently."""
+    from tplsync.mapping import on_demand_items, on_demand_note, order_lines
+    po = _po(
+        (1, 0, "Comment", "88181", 0, "***ONDEMAND FROM JIT***"),
+        (2, None, "Comment", "", 0, "CORE365 Men's Origin Performance Piqué Polo"),
+        (3, 1, "Color", "", 0, "Black"),
+        (4, 3, "Size", "", 3, "Large-SKU: PHU015OD-BLACK-LARGE-1"),
+        (5, 3, "Size", "", 9, "X-Large: SKU: PHU015OD-BLACK-X-LARGE-1"),
+        (6, 0, "Comment", "", 0, "***INVENTORY***"),
+        (7, 0, "Comment", "Air Freshener", 30, "Four Loko - Jackpot Air Freshener"),
+        (8, 0, "Comment", "", 0, "SKU: PHU563INV"),
+    )
+    assert dict(order_lines(po, "INV|OD")) == {"PHU015OD-BLACK-LARGE-1": 3, "PHU015OD-BLACK-X-LARGE-1": 9,
+                                               "PHU563INV": 30}
+    assert on_demand_note(on_demand_items(po, "INV|OD"), "ONDEMAND123") == (
+        "ON DEMAND (sent as ONDEMAND123): CORE365 Men's Origin Performance Piqué Polo - Black / Large x3 "
+        "[PO SKU PHU015OD-BLACK-LARGE-1]; CORE365 Men's Origin Performance Piqué Polo - Black / X-Large x9 "
+        "[PO SKU PHU015OD-BLACK-X-LARGE-1]")
+
+
+def test_colour_line_pointing_at_a_deleted_line_belongs_to_the_product_above():
+    """76919-5: the backpack's Color line has a parent_id that isn't on the PO any more."""
+    from tplsync.mapping import order_lines
+    po = _po(
+        (1, 0, "Comment", "", 0, "***ON DEMAND FROM HPG***"),
+        (2, None, "Comment", "70007", 0, "Metro Mini Wireless Speaker"),
+        (3, 1, "Color", "", 1, "Black"),
+        (4, 0, "Comment", "", 0, "SKU: WWD119OD-BLACK"),
+        (5, 0, "Comment", "411092", 0, "OGIO Logan Backpack"),
+        (6, 999, "Color", "", 2, "Black"),
+        (7, 0, "Comment", "", 0, "SKU: WWD216OD-BLACK"),
+    )
+    assert dict(order_lines(po, "INV|OD", on_demand=True)) == {"WWD119OD-BLACK": 1, "WWD216OD-BLACK": 2}
+
+
+def test_on_demand_sku_that_cannot_be_read_stops_the_po():
+    po = _po(
+        (1, 0, "Comment", "SHIRT", 4, "Polo"),
+        (2, 0, "Comment", "", 0, "SKU: ABC123INV"),
+        (3, 0, "Comment", "", 0, "Also add the hat ABC999OD-RED please"),
+    )
+    with pytest.raises(mapping.LineMappingError, match="ABC999OD-RED"):
+        mapping.order_lines(po, "INV|OD", on_demand=True)
