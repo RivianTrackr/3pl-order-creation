@@ -370,6 +370,35 @@ def test_po_waits_until_its_job_is_submitted(env):
     assert len(tpl.created) == 1 and db.get(900)["state"] == "done"
 
 
+def test_held_po_that_is_already_in_3pl_central_is_skipped(env):
+    proc, db, syncore, tpl, _ = env([make_po()])
+    tpl.existing["12345-3"] = 4242                    # entered by hand by the CSR team
+    syncore.job_status = "WIP"
+    proc.run(NOW)
+    row = db.get(900)
+    assert tpl.created == [] and row["state"] == "skipped" and "order 4242" in row["skip_reason"]
+    assert "po.held" not in [e["event"] for e in db.list_events(po_id=900)]
+
+    syncore.job_status = "Submitted"                  # not picked up again when the job moves on
+    proc.run(NOW)
+    assert tpl.created == [] and db.get(900)["state"] == "skipped"
+
+
+def test_pos_already_on_hold_are_looked_up_in_3pl_central_hourly(env):
+    from dataclasses import replace
+    proc, db, syncore, tpl, _ = env([make_po()])
+    proc.s.clients["5001"] = replace(CLIENT, active=False)
+    proc.run(NOW)
+    assert db.get(900)["state"] == "held"
+
+    tpl.existing["12345-3"] = 4242                    # the team sends it by hand while the client is paused
+    proc.run(NOW + timedelta(minutes=5))
+    assert db.get(900)["state"] == "held"             # looked up less than an hour ago
+    proc.run(NOW + timedelta(minutes=61))
+    row = db.get(900)
+    assert row["state"] == "skipped" and "order 4242" in row["skip_reason"] and tpl.created == []
+
+
 def test_po_on_a_delivered_job_is_skipped_not_held(env):
     proc, db, syncore, tpl, notifier = env([make_po()])
     syncore.job_status = "Delivered"

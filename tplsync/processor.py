@@ -213,6 +213,7 @@ class Processor:
             self.complete_open_orders()
         self.check_sent_pos_exist_if_due(now)
         self.check_shipments(now)
+        self.check_held_in_3pl_if_due(now)
 
         # Resume anything still in flight that fell out of the search window.
         for row in self.db.active():
@@ -296,10 +297,12 @@ class Processor:
         except (HoldPO, ClientNotReady) as exc:
             # Waiting on the job (not submitted yet) or on the client (paused on the Clients page): the PO goes
             # through on its own once that changes, so it's on hold rather than a problem.
-            self.stats["held"] += 1
             paused = isinstance(exc, ClientNotReady)
             reason = str(exc.args[0])
             newly_held = rec is None or rec["state"] != "held" or rec["skip_reason"] != reason
+            if newly_held and not self.s.dry_run and self._skip_if_in_3pl(po_id, job_id, last_modified):
+                return
+            self.stats["held"] += 1
             if not self.s.dry_run:
                 self.db.upsert(po_id, job_id, state="held", skip_reason=reason, last_modified=last_modified,
                                last_error=None)
@@ -355,6 +358,43 @@ class Processor:
                 self.event(rec["po_id"], rec["job_id"], ref, "warning", "order.cancelled",
                            f"3PL order {rec['order_id']} was cancelled in 3PL Central", info)
             self.db.upsert(rec["po_id"], rec["job_id"], **fields)
+
+    # --- held POs that are already in 3PL Central -------------------------------
+
+    HELD_CHECK_MINUTES = 60
+
+    def check_held_in_3pl_if_due(self, now: datetime) -> None:
+        """About once an hour, look in 3PL Central for every PO on hold. Never fails a run."""
+        last = self.db.get_meta("held_check_at")
+        if self.s.dry_run or (last and now - datetime.fromisoformat(last) < timedelta(minutes=self.HELD_CHECK_MINUTES)):
+            return
+        for rec in self.db.active():
+            if rec["state"] == "held":
+                self._skip_if_in_3pl(rec["po_id"], rec["job_id"], rec["last_modified"])
+        self.db.set_meta("held_check_at", now.isoformat())
+
+    def _skip_if_in_3pl(self, po_id: int, job_id: int, last_modified: Optional[str]) -> bool:
+        """A held PO that already has an order in 3PL Central (entered by hand, or before go-live) has nothing
+        left to wait for, so it's skipped. If 3PL Central can't be asked, the PO stays on hold."""
+        rec = self.db.get(po_id)
+        creds = self.s.clients.get(str(rec["client_id"] or "")) if rec else None
+        ref = rec["reference"] if rec else None
+        if creds is None or not ref:
+            return False
+        try:
+            existing = self.tpl(creds).find_existing_order(ref)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not look for %s in 3PL Central: %s", ref, exc)
+            return False
+        if existing is None:
+            return False
+        reason = f"already in 3PL Central as order {existing[0]} (same {existing[1]}), so it isn't held"
+        self.db.upsert(po_id, job_id, state="skipped", skip_reason=reason, last_modified=last_modified,
+                       last_error=None)
+        self.stats["skipped"] += 1
+        self.event(po_id, job_id, ref, "info", "po.skipped", f"Skipped: {reason}",
+                   {"order_id": existing[0], "matched_on": existing[1]})
+        return True
 
     # --- POs that change after they were sent -----------------------------------
 
