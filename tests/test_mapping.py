@@ -375,3 +375,60 @@ def test_on_demand_sku_that_cannot_be_read_stops_the_po():
     )
     with pytest.raises(mapping.LineMappingError, match="ABC999OD-RED"):
         mapping.order_lines(po, "INV|OD", on_demand=True)
+
+
+def test_sku_written_after_the_size_with_the_quantity_on_the_same_line():
+    """77993-2: "Size Large: SKU PHU015OD-BLACK-LARGE" with qty 3, and a bag that is just "PHU125OD" with qty 3."""
+    from tplsync.mapping import on_demand_items, on_demand_note, order_lines
+    po = _po(
+        (1, 0, "Comment", "", 0, "***ON DEMAND FROM JIT***"),
+        (2, 0, "Comment", "", 0, "Core356 Men's Polo"),
+        (3, 0, "Comment", "", 0, "Color: Black"),
+        (4, 0, "Comment", "", 3, "Size Large: SKU PHU015OD-BLACK-LARGE"),
+        (5, 0, "Comment", "", 2, "Size X-Large: SKU PHU015OD-BLACK-X-Large"),
+        (6, 0, "Comment", "", 0, ""),
+        (7, 0, "Comment", "", 0, "Slater Bag"),
+        (8, 0, "Comment", "", 0, "Color: Black"),
+        (9, 0, "Comment", "", 3, "PHU125OD"),
+    )
+    assert dict(order_lines(po, "INV|OD", on_demand=True)) == {
+        "PHU015OD-BLACK-LARGE": 3, "PHU015OD-BLACK-X-Large": 2, "PHU125OD": 3}
+    assert on_demand_note(on_demand_items(po, "INV|OD"), "ONDEMAND123") == (
+        "ON DEMAND (sent as ONDEMAND123): Core356 Men's Polo - Black / Large x3 [PO SKU PHU015OD-BLACK-LARGE]; "
+        "Core356 Men's Polo - Black / X-Large x2 [PO SKU PHU015OD-BLACK-X-Large]; "
+        "Slater Bag - Black x3 [PO SKU PHU125OD]")
+
+
+def test_size_lines_naming_their_sku_without_a_colon():
+    from tplsync.mapping import on_demand_items, on_demand_note, order_lines
+    po = _po(
+        (1, 0, "Comment", "", 0, "***ON DEMAND FROM JIT***"),
+        (2, None, "Comment", "", 0, "Core356 Men's Polo"),
+        (3, 1, "Color", "", 0, "Black"),
+        (4, 3, "Size", "", 3, "Size Large: SKU PHU015OD-BLACK-LARGE"),
+        (5, 3, "Size", "", 2, "Size X-Large SKU PHU015OD-BLACK-X-Large"),
+    )
+    assert dict(order_lines(po, "INV|OD", on_demand=True)) == {"PHU015OD-BLACK-LARGE": 3, "PHU015OD-BLACK-X-Large": 2}
+    assert on_demand_note(on_demand_items(po, "INV|OD"), "ONDEMAND123") == (
+        "ON DEMAND (sent as ONDEMAND123): Core356 Men's Polo - Black / Large x3 [PO SKU PHU015OD-BLACK-LARGE]; "
+        "Core356 Men's Polo - Black / X-Large x2 [PO SKU PHU015OD-BLACK-X-Large]")
+
+
+def test_inventory_sku_written_after_the_size_is_sent_too():
+    po = _po(
+        (1, 0, "Comment", "", 0, "Fleece Jacket"),
+        (2, 0, "Comment", "", 5, "Size L - SKU EBC006INVJ-L"),
+    )
+    assert dict(mapping.order_lines(po, "INV|OD")) == {"EBC006INVJ-L": 5}
+
+
+def test_product_line_with_a_quantity_is_not_read_twice():
+    """A product line that is just a code, or that mentions a vendor's SKU, still gives its quantity to the SKU line
+    under it instead of becoming an item of its own."""
+    po = _po(
+        (1, 0, "Comment", "", 4, "ABC123INV"),
+        (2, 0, "Comment", "", 0, "SKU: ABC123INV-L"),
+        (3, 0, "Comment", "", 2, "Peter Millar Polo, SKU 88181"),
+        (4, 0, "Comment", "", 0, "SKU: BAL528INV-59838"),
+    )
+    assert dict(mapping.order_lines(po, "INV|OD")) == {"ABC123INV-L": 4, "BAL528INV-59838": 2}

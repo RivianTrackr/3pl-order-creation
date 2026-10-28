@@ -59,6 +59,48 @@ def variant_sku(line: dict) -> Optional[str]:
     return match.group(1).strip() if match else None
 
 
+# A SKU named partway through a line, with or without a colon: "Size Large: SKU PHU015OD-BLACK-LARGE".
+_SKU_IN_TEXT = re.compile(r"\bSKU\b\s*[:#]?\s*([A-Za-z0-9][A-Za-z0-9._/-]*)", re.IGNORECASE)
+_SIZE_WORD = re.compile(r"^\s*(colou?r|size)\b\s*:?\s*", re.IGNORECASE)
+
+
+def _text_sku(line: dict) -> Optional[str]:
+    """The INV/OD SKU named in a line's text when the line has its own quantity and an empty SKU field. A vendor's
+    style number ("Polo, SKU 88181") is left alone: that line is a product."""
+    if str(line.get("sku") or "").strip() or _qty(line.get("quantity")) <= 0:
+        return None
+    match = _SKU_IN_TEXT.search(clean_text(line.get("description")))
+    code = match.group(1).rstrip("._/-") if match else ""
+    return code if re.search(r"\d", code) and ("INV" in code.upper() or OD_SKU.search(code)) else None
+
+
+def own_sku(line: dict) -> Optional[str]:
+    """The SKU on a line that carries its own quantity and has nothing in its SKU field: one named in the text
+    ("Size Large: SKU PHU015OD-BLACK-LARGE", qty 3), or a line that is just an INV/OD code ("PHU125OD", qty 3)."""
+    sku = _text_sku(line)
+    if sku:
+        return sku
+    text = clean_text(line.get("description"))
+    if (_BARE_CODE.match(text) and not str(line.get("sku") or "").strip() and _qty(line.get("quantity")) > 0
+            and re.search(r"\d", text) and ("INV" in text.upper() or OD_SKU.search(text))):
+        return text
+    return None
+
+
+def own_sku_label(line: dict) -> str:
+    """The colour/size written before the SKU on such a line: "Size Large: SKU ..." -> "Large"."""
+    text = clean_text(line.get("description"))
+    match = _SKU_IN_TEXT.search(text)
+    if not match:
+        return ""
+    return _SIZE_WORD.sub("", text[:match.start()]).strip(" :-")
+
+
+def _names_sku(line: dict) -> bool:
+    """Whether a line names a SKU rather than a product: "SKU: ..." lines and "Size Large: SKU ..." lines."""
+    return bool(tagged_sku(line) or _text_sku(line))
+
+
 # Lines that describe a product's variants or decoration rather than a product.
 DETAIL_TYPES = {"color", "size", "productcomment", "decorationmethod", "decorationcomment"}
 
@@ -73,7 +115,7 @@ def _product_above(items: List[dict], index: int) -> Optional[dict]:
     """The nearest line above items[index] that is a product (not a SKU line, a colour/size/decoration line, a
     blank line or an "Item Value : $..." note)."""
     for line in reversed(items[:index]):
-        if tagged_sku(line) or str(line.get("type") or "").replace(" ", "").casefold() in DETAIL_TYPES:
+        if _names_sku(line) or str(line.get("type") or "").replace(" ", "").casefold() in DETAIL_TYPES:
             continue
         text = str(line.get("description") or "").strip()
         if (not text or _INFO_LINE.match(text) or _DETAIL_TEXT.match(text)) and _qty(line.get("quantity")) <= 0:
@@ -96,6 +138,8 @@ def _text_details(items: List[dict], index: int) -> List[str]:
 
     before, after = [], []
     for line in reversed(items[:index]):
+        if _text_sku(line):
+            continue                     # "Size Large: SKU ..." just above "Size X-Large: SKU ..."
         if (value := detail(line)) is None:
             break
         before.insert(0, value)
@@ -119,7 +163,7 @@ def clean_text(text) -> str:
 
 def _header_above(items: List[dict], index: int) -> Optional[dict]:
     """The nearest top-level heading line above items[index] (e.g. "ON DEMAND FROM JUST INK", "INVENTORY")."""
-    return next((p for p in reversed(items[:index]) if p.get("parent_id") == 0 and not tagged_sku(p)), None)
+    return next((p for p in reversed(items[:index]) if p.get("parent_id") == 0 and not _names_sku(p)), None)
 
 
 def is_on_demand(items: List[dict], index: int, sku: str, exempt=frozenset()) -> bool:
@@ -138,6 +182,7 @@ def on_demand_items(po: dict, sku_pattern: str, allowed=frozenset(), exempt=froz
     [{"sku", "product", "code", "variants": [(label, qty)], "qty"}]. exempt: the client's Allowed SKUs."""
     details: List[dict] = []
     order_lines(po, sku_pattern, allowed, on_demand=True, details=details)
+    details.sort(key=lambda d: d["index"])                 # in PO order, whichever layout read them
     items = po.get("line_items") or []
     result = []
     for d in details:
@@ -151,13 +196,14 @@ def on_demand_items(po: dict, sku_pattern: str, allowed=frozenset(), exempt=froz
             if str(v.get("type") or "").casefold() in ("color", "size"):
                 label = " / ".join(_variant_parts(v, items))
             elif v is line or v is product:
-                label = typed                                  # "Color: White" / "Size: XL" lines, if any
+                # "Color: White" / "Size: XL" lines, and the size in "Size Large: SKU ...", if any
+                label = " / ".join(x for x in (typed, own_sku_label(line)) if x)
             else:
                 label = clean_text(v.get("description"))      # e.g. a "Black" line after the SKU line
             variants.append((label, qty))
         code = str(product.get("sku") or "").strip() if product is not line else ""
         result.append({"sku": d["sku"], "product": clean_text(product.get("description")) if product is not line
-                       or not tagged_sku(line) else "",
+                       or not (tagged_sku(line) or own_sku(line)) else "",
                        "code": code if code != d["sku"] else "", "variants": variants,
                        "qty": sum(q for _, q in variants)})
     return result
@@ -186,6 +232,9 @@ def order_lines(po: dict, sku_pattern: str, allowed=frozenset(), on_demand: bool
       it when that line has its own quantity, or else from its group: the nearest
       top-level line above it, whose quantity is its own or sits on its Color/Size
       lines (on-demand POs put an "ON DEMAND FROM ..." header there).
+    * The SKU is written on a line that has its own quantity and an empty SKU field, partway through the text
+      ("Size Large: SKU PHU015OD-BLACK-LARGE") or as the whole text ("PHU125OD"). It is read only when no SKU
+      line above already took that line's quantity.
     * The inventory SKU is in the line's own SKU field. A matching parent whose
       matching children carry their own quantities (e.g. sizes) is skipped so it
       isn't counted twice.
@@ -253,11 +302,11 @@ def order_lines(po: dict, sku_pattern: str, allowed=frozenset(), on_demand: bool
             # The SKU belongs to the nearest group above it: a top-level line whose quantity is either
             # its own or spread over its Color/Size lines ("ON DEMAND FROM ..." headers work this way).
             group = next((p for p in reversed(items[:index])
-                          if p.get("parent_id") == 0 and not tagged_sku(p)
+                          if p.get("parent_id") == 0 and not _names_sku(p)
                           and (leaf_quantity(p.get("line_id")) > 0 or _qty(p.get("quantity")) > 0)), None)
             if group is None:
                 group = next((p for p in reversed(items[:index])
-                              if _qty(p.get("quantity")) > 0 and not tagged_sku(p)), None)
+                              if _qty(p.get("quantity")) > 0 and not _names_sku(p)), None)
             if group is None and od:
                 # Some on-demand POs put the colour and quantity on the line right after the SKU line.
                 nxt = items[index + 1] if index + 1 < len(items) else None
@@ -291,6 +340,19 @@ def order_lines(po: dict, sku_pattern: str, allowed=frozenset(), on_demand: bool
         add(sku, sum(q for _, q in variants))
         if details is not None:
             details.append({"sku": sku, "index": index, "product": product, "variants": variants})
+
+    # Layout 1b: a line with its own quantity that names its SKU partway through ("Size Large: SKU PHU015OD-...")
+    # or is just the code ("PHU125OD"), unless a SKU line above already took its quantity.
+    for index, li in enumerate(items):
+        sku = own_sku(li)
+        if not sku or not wanted(sku) or li.get("line_id") in claimed \
+                or (li.get("parent_id") and li.get("parent_id") in claimed):
+            continue
+        claimed.add(li.get("line_id"))
+        add(sku, _qty(li.get("quantity")))
+        if details is not None:
+            details.append({"sku": sku, "index": index, "product": _product_above(items, index),
+                            "variants": [(li, _qty(li.get("quantity")))]})
 
     # Layout 2: SKU field on the line itself.
     matching = [li for li in items
@@ -328,7 +390,10 @@ def _variant_parts(line: dict, items: List[dict]) -> List[str]:
     parts, current = [], line
     while current is not None:
         if str(current.get("type") or "").casefold() in ("color", "size"):
-            parts.append(_SKU_SUFFIX.sub("", clean_text(current.get("description"))).strip())
+            text = _SKU_SUFFIX.sub("", clean_text(current.get("description")))
+            if match := _SKU_IN_TEXT.search(text):        # "Size Large: SKU PHU015OD-BLACK-LARGE"
+                text = text[:match.start()]
+            parts.append(_SIZE_WORD.sub("", text).strip(" :-"))
         current = by_id.get(current.get("parent_id"))
     return [p for p in reversed(parts) if p]
 
@@ -352,7 +417,7 @@ def po_skus(po: dict) -> List[str]:
     """Every SKU on the PO, from SKU fields and "SKU:" descriptions (for logging)."""
     found = []
     for li in po.get("line_items") or []:
-        for value in (li.get("sku"), tagged_sku(li), variant_sku(li)):
+        for value in (li.get("sku"), tagged_sku(li), variant_sku(li), own_sku(li)):
             if value and str(value).strip() not in found:
                 found.append(str(value).strip())
     return found
