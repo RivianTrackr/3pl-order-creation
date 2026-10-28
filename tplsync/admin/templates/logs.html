@@ -16,6 +16,31 @@
 </nav>
 
 <section class="card">
+  {% if tab == 'events' %}
+  <div class="notice notice-info events-help">
+    <i class="fa-solid fa-circle-info"></i>
+    <div>Everything that happened to each PO, newest first. Problems are highlighted, with what to do next and who can fix it.
+      {% if support.email %}If a problem says <strong>Contact support</strong>, or you're not sure, use <strong>Email {{ support.name or 'for help' }}</strong> on it: the details are filled in for you.{% endif %}</div>
+  </div>
+  <div class="problem-cards">
+    <div class="problem-cards-head">
+      <h2>Problems in the last 7 days</h2>
+      {% if cat %}<a class="small" href="/logs?tab=events&show=problems"><i class="fa-solid fa-xmark"></i> Show all problems</a>{% endif %}
+    </div>
+    {% for c in summary %}
+    {% set label = category_label(c.key) %}
+    <a class="problem-card{{ ' has-open' if c.open }}{{ ' is-selected' if cat == c.key }}" href="/logs?tab=events&cat={{ c.key }}">
+      <span class="problem-card-label"><i class="fa-solid {{ label[1] }}"></i> {{ label[0] }}</span>
+      <span class="problem-card-count">
+        {% if c.open %}<strong>{{ c.open | length }} still need{{ 's' if c.open | length == 1 }} attention</strong> · {% endif %}
+        {% if c.pos %}{{ c.pos | length }} PO{{ 's' if c.pos | length != 1 }}{% else %}{{ c.events }} time{{ 's' if c.events != 1 }}{% endif %}{% if not c.open and c.pos %}, all sorted{% endif %}
+      </span>
+    </a>
+    {% else %}
+    <div class="notice notice-success" style="grid-column: 1 / -1; margin: 0"><i class="fa-solid fa-circle-check"></i><div>No problems in the last 7 days.</div></div>
+    {% endfor %}
+  </div>
+  {% endif %}
   <form method="get" action="/logs" class="filter-bar">
     <input type="hidden" name="tab" value="{{ tab }}">
     {% if tab == 'runs' %}
@@ -33,13 +58,14 @@
       </select>
       <label class="checkbox"><input type="checkbox" name="show_quiet" value="true" {{ 'checked' if show_quiet }} data-autosubmit> Include scheduled runs with nothing to do</label>
     {% elif tab == 'events' %}
-      <input class="input" type="search" name="q" value="{{ q }}" placeholder="Reference, PO id, job # or text" aria-label="Search">
-      <select class="input" name="level" aria-label="Level" data-autosubmit>
-        <option value="">All levels</option>
-        {% for k, label in [('error', 'Errors'), ('warning', 'Warnings'), ('info', 'Info')] %}
-        <option value="{{ k }}" {{ 'selected' if level == k }}>{{ label }}</option>
+      {% if cat %}<input type="hidden" name="cat" value="{{ cat }}">{% endif %}
+      <nav class="segmented" aria-label="Show">
+        {% for k, label, title in [('problems', 'Problems', 'Only problems and things that need a look'), ('important', 'Important', 'Everything except routine steps'), ('all', 'Everything', 'Every step, including routine ones')] %}
+        <a href="/logs?tab=events&show={{ k }}&q={{ q | urlencode }}" class="{{ 'active' if show == k and not cat }}" title="{{ title }}">{{ label }}</a>
         {% endfor %}
-      </select>
+      </nav>
+      <input type="hidden" name="show" value="{{ show }}">
+      <input class="input" type="search" name="q" value="{{ q }}" placeholder="PO reference (e.g. 78030-1), job # or words" aria-label="Search">
     {% else %}
       <select class="input" name="status" aria-label="Status" data-autosubmit>
         <option value="">Any status</option>
@@ -55,7 +81,7 @@
   <div class="empty-state">
     <i class="fa-solid fa-scroll"></i>
     <h3>No entries</h3>
-    <p>{{ 'Runs appear here after the scheduler, Run now or a PO test starts one.' if tab == 'runs' else 'Nothing matches these filters.' }}</p>
+    <p>{{ 'Runs appear here after the scheduler, Run now or a PO test starts one.' if tab == 'runs' else ('No problems match.' if tab == 'events' and show == 'problems' else 'Nothing matches these filters.') }}</p>
   </div>
   {% elif tab == 'runs' %}
   <div class="table-wrap">
@@ -87,7 +113,7 @@
 
   {% if page > 1 or has_next %}
   <nav class="pager" aria-label="Pages">
-    {% set base = '/logs?tab=' ~ tab ~ '&status=' ~ status ~ '&kind=' ~ kind ~ '&level=' ~ level ~ '&q=' ~ (q | urlencode) ~ ('&show_quiet=true' if show_quiet else '') %}
+    {% set base = '/logs?tab=' ~ tab ~ '&status=' ~ status ~ '&kind=' ~ kind ~ '&show=' ~ show ~ '&q=' ~ (q | urlencode) ~ ('&show_quiet=true' if show_quiet else '') %}
     {% if page > 1 %}<a class="btn btn-secondary btn-sm" href="{{ base }}&page={{ page - 1 }}"><i class="fa-solid fa-chevron-left"></i> Newer</a>{% endif %}
     <span class="muted small">Page {{ page }}</span>
     {% if has_next %}<a class="btn btn-secondary btn-sm" href="{{ base }}&page={{ page + 1 }}">Older <i class="fa-solid fa-chevron-right"></i></a>{% endif %}

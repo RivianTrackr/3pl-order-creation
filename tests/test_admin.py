@@ -724,3 +724,24 @@ def test_active_shows_only_what_is_in_progress(client, boot):
     assert "1302-1" not in active and "1305-1" not in active
     everything = client.get("/?state=all").text
     assert all(f"{n}-1" in everything for n in range(1301, 1307))
+
+
+def test_po_events_are_shown_in_plain_language(client, boot):
+    login(client)
+    db = Database(boot.db_path)
+    db.set_setting("SUPPORT_NAME", "Pat", "test")
+    db.set_setting("SUPPORT_EMAIL", "pat@example.com", "test")
+    db.upsert(901, 12345, reference="12345-1", state="error", attempts=2)
+    db.add_event(None, 901, 12345, "12345-1", "error", "po.error",
+                 "Attempt 2 failed (will retry): Found SKU X-INV but no product line with a quantity above it.",
+                 {"error_type": "LineMappingError", "attempt": 2})
+    db.add_event(None, 901, 12345, "12345-1", "info", "po.loaded", "Loaded PO from Syncore", None)
+
+    page = client.get("/logs?tab=events").text
+    assert "Couldn&#39;t read the items on the PO" in page and "Fix in Syncore" in page
+    assert "1 still needs attention" in page and "Email Pat" in page and "mailto:pat@example.com" in page
+    assert "Read the PO from Syncore" not in page                  # routine steps hidden by default
+    assert "Read the PO from Syncore" in client.get("/logs?tab=events&show=all").text
+    problems = client.get("/logs?tab=events&cat=po_lines").text
+    assert "12345-1" in problems and "Read the PO from Syncore" not in problems
+    assert "Fix in Syncore" in client.get("/po/901").text

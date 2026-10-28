@@ -6,7 +6,7 @@ import re
 import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -393,6 +393,17 @@ class Database:
         return self.conn.execute(
             "SELECT p.*, COALESCE(c.name, p.client_name) AS client_display FROM purchase_orders p "
             "LEFT JOIN clients c ON c.syncore_group_id = p.client_id WHERE p.po_id = ?", (po_id,)).fetchone()
+
+    def po_views(self, po_ids: Sequence[int]) -> Dict[int, sqlite3.Row]:
+        """po_view for several POs at once, keyed by PO id."""
+        ids = sorted({int(i) for i in po_ids if i})
+        if not ids:
+            return {}
+        rows = self.conn.execute(
+            "SELECT p.*, COALESCE(c.name, p.client_name) AS client_display FROM purchase_orders p "
+            "LEFT JOIN clients c ON c.syncore_group_id = p.client_id "
+            f"WHERE p.po_id IN ({', '.join('?' * len(ids))})", ids).fetchall()
+        return {r["po_id"]: r for r in rows}
 
     def event_counts_since(self, since: str) -> Dict[str, int]:
         return {r["event"]: r["n"] for r in self.conn.execute(
@@ -781,12 +792,28 @@ class Database:
                  json.dumps(data, default=str) if data is not None else None))
 
     def list_events(self, limit: int = 100, offset: int = 0, run_id: Optional[int] = None, po_id: Optional[int] = None,
-                    level: Optional[str] = None, q: Optional[str] = None) -> List[sqlite3.Row]:
+                    level: Optional[str] = None, q: Optional[str] = None, levels: Sequence[str] = (),
+                    hide_info: Sequence[str] = (), hide: Sequence[str] = (),
+                    since: Optional[str] = None) -> List[sqlite3.Row]:
+        """Events, newest first (oldest first for one run or PO). `hide_info` leaves out those events when they're
+        plain info, i.e. routine steps that went fine; `hide` leaves them out whatever their level."""
         where, params = [], []
         for col, value in (("run_id", run_id), ("po_id", po_id), ("level", level)):
             if value not in (None, ""):
                 where.append(f"{col} = ?")
                 params.append(value)
+        if levels:
+            where.append(f"level IN ({', '.join('?' * len(levels))})")
+            params += list(levels)
+        if hide_info:
+            where.append(f"NOT (level = 'info' AND event IN ({', '.join('?' * len(hide_info))}))")
+            params += list(hide_info)
+        if hide:
+            where.append(f"event NOT IN ({', '.join('?' * len(hide))})")
+            params += list(hide)
+        if since:
+            where.append("at >= ?")
+            params.append(since)
         if q:
             where.append("(message LIKE ? OR reference LIKE ? OR event LIKE ? OR CAST(po_id AS TEXT) = ? "
                          "OR CAST(job_id AS TEXT) = ?)")

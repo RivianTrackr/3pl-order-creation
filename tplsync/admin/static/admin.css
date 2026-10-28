@@ -376,21 +376,80 @@ input[type="checkbox"] { accent-color: var(--primary); }
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--tone) 25%, transparent);
 }
 .timeline-body { padding-top: 3px; min-width: 0; }
-.timeline-message { font-weight: 500; overflow-wrap: anywhere; }
-.timeline-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 12px; color: var(--text-muted); margin-top: 3px; }
-.timeline-meta code {
-  font-size: 11px; padding: 1px 6px; border-radius: 4px; color: var(--tone);
-  background: var(--tone-bg); border: 1px solid color-mix(in srgb, var(--tone) 20%, transparent);
+.timeline-head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 12px; flex-wrap: wrap; }
+.timeline-title { font-weight: 600; overflow-wrap: anywhere; }
+.timeline-time { font-size: 12px; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.timeline-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+.timeline-po { font-weight: 600; }
+.timeline-po i { font-size: 11px; opacity: 0.7; }
+.timeline-now { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.timeline-what { margin: 4px 0 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+.timeline-next {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; margin-top: 10px; padding: 10px 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text);
 }
+.timeline-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 10px; }
+.timeline-foot details.data { margin-top: 0; flex-basis: 100%; order: 2; }
+.timeline-retry { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--tone); }
+
 .timeline-item.tone-success { --tone: var(--success); --tone-bg: var(--success-bg); }
 .timeline-item.tone-info { --tone: var(--info); --tone-bg: var(--info-bg); }
 .timeline-item.tone-muted { --tone: #64748b; --tone-bg: #f1f5f9; }
 .timeline-item.tone-warning { --tone: #b45309; --tone-bg: var(--warning-bg); }
 .timeline-item.tone-error { --tone: var(--error); --tone-bg: var(--error-bg); }
-.timeline-item.tone-success .timeline-message { color: var(--success); }
-.timeline-item.tone-warning .timeline-message { color: var(--warning); }
-.timeline-item.tone-error .timeline-message { color: var(--error); }
-.timeline-item.tone-muted .timeline-message { color: var(--text-secondary); }
+.timeline-item.tone-success .timeline-title { color: var(--success); }
+.timeline-item.tone-muted .timeline-title { color: var(--text-secondary); font-weight: 500; }
+.timeline-item.tone-muted .timeline-what, .timeline-item.tone-info .timeline-what { font-size: 13px; }
+
+/* Problems stand out as a tinted card on the rail. */
+.timeline-item.is-problem .timeline-body {
+  padding: 10px 14px 12px; border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--tone-bg) 55%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--tone) 22%, var(--border));
+}
+.timeline-item.is-problem .timeline-title { color: var(--tone); }
+.timeline-item.is-problem .timeline-what { color: var(--text); }
+.timeline-item.is-problem.is-resolved .timeline-body { background: var(--surface); border-color: var(--border); }
+.timeline-item.is-resolved .timeline-icon { opacity: 0.7; }
+.timeline-resolved { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--success); }
+.timeline-item.is-problem + .timeline-item, .timeline-day + .timeline-item.is-problem { margin-top: 2px; }
+
+.timeline-day {
+  display: flex; align-items: center; gap: 10px; padding: 14px 0 8px; font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);
+}
+.timeline-day::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.timeline-day:first-child { padding-top: 0; }
+
+/* Who can fix it */
+.fixer {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  font-size: 12px; font-weight: 600; background: var(--surface-hover); color: var(--text-secondary);
+}
+.fixer i { font-size: 11px; }
+.fixer-syncore { background: var(--info-bg); color: var(--info); }
+.fixer-tpl { background: var(--primary-tint); color: var(--primary); }
+.fixer-warehouse { background: var(--warning-bg); color: var(--warning); }
+.fixer-auto { background: var(--success-bg); color: var(--success); }
+.fixer-support { background: var(--error-bg); color: var(--error); }
+
+/* Problem summary on the PO events tab */
+.problem-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.problem-card {
+  display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: var(--radius-lg); background: var(--surface); color: var(--text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+a.problem-card:hover { text-decoration: none; border-color: var(--border-strong); }
+.problem-card.is-selected { border-color: var(--primary); box-shadow: var(--focus); }
+.problem-card-label { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+.problem-card-label i { color: var(--text-muted); width: 14px; text-align: center; }
+.problem-card-count { font-size: 13px; color: var(--text-secondary); }
+.problem-card.has-open { border-color: var(--error-border); background: color-mix(in srgb, var(--error-bg) 45%, var(--surface)); }
+.problem-card.has-open .problem-card-count strong { color: var(--error); }
+.problem-cards-head { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; align-items: baseline; }
+.problem-cards-head h2 { font-size: 15px; }
+.events-help { margin: 16px 20px 0; }
 
 details.data { margin-top: 6px; }
 details.data summary, details.email summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }

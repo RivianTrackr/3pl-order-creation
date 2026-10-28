@@ -90,29 +90,85 @@
   'po.changed_after_send': ('warning', 'fa-pen'),
 } %}
 
-{% macro event_list(events, show_po=False) -%}
+{# Who can fix a problem, as a small labelled chip. #}
+{% macro fixer_chip(key) -%}
+  {% set f = fixer_label(key) %}
+  {% if f %}<span class="fixer fixer-{{ key }}"><i class="fa-solid {{ f[1] }}"></i> {{ f[0] }}</span>{% endif %}
+{%- endmacro %}
+
+{# "Email for help" link with the problem's details filled in. #}
+{% macro help_link(e) -%}
+  {% if support.email %}
+  {% set ref = e.reference or (('PO id ' ~ e.po_id) if e.po_id else 'no PO') %}
+  {% autoescape false %}{% set body %}Hi{{ (' ' ~ support.name) if support.name }},
+
+I need help with a problem in 3PL Order Sync.
+
+PO: {{ ref }}{% if e.po and e.po.client_display %}
+Client: {{ e.po.client_display }}{% endif %}
+When: {{ localtime(e.at) }} ({{ tz_name }})
+Problem: {{ e.x.title }}
+What it says: {{ e.x.what }}{% if e.po_id %}
+
+PO page: {{ request.base_url }}po/{{ e.po_id }}{% endif %}
+
+(Event #{{ e.id }}, {{ e.event }})
+{% endset %}
+  <a class="btn btn-secondary btn-sm" href="mailto:{{ support.email | e }}?subject={{ ('3PL Order Sync: problem with ' ~ ref) | urlencode }}&body={{ body | urlencode }}">
+    <i class="fa-solid fa-envelope"></i> Email {{ (support.name or 'for help') | e }}</a>
+  {% endautoescape %}
+  {% endif %}
+{%- endmacro %}
+
+{# A timeline of events in plain language. Problems (errors and warnings) get what happened, what to do,
+   who can fix it, the PO's status now and a help link; routine steps stay one line. #}
+{% macro event_list(events, show_po=False, group_days=True) -%}
 <ol class="timeline">
   {% for e in events %}
+  {% set x = e.x %}
   {% set style = EVENT_STYLE.get(e.event, ('info', 'fa-circle-info')) %}
   {% set tone = e.level if e.level in ('error', 'warning') else style[0] %}
+  {% set problem = e.level in ('error', 'warning') %}
   {% set icon = 'fa-circle-xmark' if e.level == 'error' else ('fa-triangle-exclamation' if e.level == 'warning' and style[0] != 'warning' else style[1]) %}
-  <li class="timeline-item tone-{{ tone }}">
-    <div class="timeline-icon" title="{{ tone|capitalize }}"><i class="fa-solid {{ icon }}"></i></div>
+  {% set day = day_label(e.at) %}
+  {% if group_days and loop.changed(day) %}<li class="timeline-day">{{ day }}</li>{% endif %}
+  {% set done = e.resolved %}
+  <li class="timeline-item tone-{{ tone }}{{ ' is-problem' if problem }}{{ ' is-resolved' if done }}">
+    <div class="timeline-icon" title="{{ {'error': 'Problem', 'warning': 'Needs a look', 'success': 'Done'}.get(tone, 'Update') }}"><i class="fa-solid {{ icon }}"></i></div>
     <div class="timeline-body">
       <div class="timeline-head">
-        <span class="timeline-message">{{ e.message }}</span>
+        <span class="timeline-title">{{ x.title }}</span>
+        <time class="timeline-time" datetime="{{ e.at }}" title="{{ localtime(e.at) }}">{{ localtime(e.at, clock=True) if group_days else localtime(e.at) }}</time>
       </div>
+      {% if show_po and e.po_id %}
       <div class="timeline-meta">
-        <span>{{ localtime(e.at) }}</span>
-        <code>{{ e.event }}</code>
-        {% if show_po and e.po_id %}<a href="/po/{{ e.po_id }}">{{ e.reference or ('PO id ' ~ e.po_id) }}</a>{% endif %}
-        {% if not show_po and e.run_id %}<a href="/logs/runs/{{ e.run_id }}">Run #{{ e.run_id }}</a>{% endif %}
+        {% if show_po and e.po_id %}<a class="timeline-po" href="/po/{{ e.po_id }}"><i class="fa-solid fa-file-lines"></i> {{ e.reference or ('PO id ' ~ e.po_id) }}</a>{% endif %}
+        {% if show_po and e.po and e.po.client_display %}<span>{{ e.po.client_display }}</span>{% endif %}
+        {% if problem and e.po %}<span class="timeline-now">Now: {{ po_status(e.po) }}</span>{% endif %}
       </div>
-      {% if e.data_pretty %}
-      <details class="data">
-        <summary>Details</summary>
-        <pre>{{ e.data_pretty }}</pre>
-      </details>
+      {% endif %}
+      {% if x.what and x.what != x.title %}<p class="timeline-what">{{ x.what }}</p>{% endif %}
+      {% if x.next and not done %}
+      <div class="timeline-next">
+        {% if x.fixer %}{{ fixer_chip(x.fixer) }}{% endif %}
+        <span>{{ x.next }}</span>
+      </div>
+      {% endif %}
+      {% if x.retry or problem or e.data_pretty or not show_po and e.run_id %}
+      <div class="timeline-foot">
+        {% if done %}<span class="timeline-resolved"><i class="fa-solid fa-circle-check"></i> Resolved since then. Nothing to do.</span>
+        {% elif x.retry %}<span class="timeline-retry"><i class="fa-solid {{ 'fa-circle-stop' if x.retry.startswith('Stopped') else 'fa-rotate' }}"></i> {{ x.retry }}</span>{% endif %}
+        {% if not done and (e.level == 'error' or x.fixer == 'support') %}{{ help_link(e) }}{% endif %}
+        {% if not show_po and e.run_id %}<a class="muted small" href="/logs/runs/{{ e.run_id }}">Run #{{ e.run_id }}</a>{% endif %}
+        <details class="data">
+          <summary>Technical details</summary>
+          <div class="data-body">
+            <div class="small muted"><code>{{ e.event }}</code> · {{ localtime(e.at, seconds=True) }} · event #{{ e.id }}{% if e.job_id %} · job {{ e.job_id }}{% endif %}</div>
+            {% if x.what != e.message %}<p class="small">{{ e.message }}</p>{% endif %}
+            {% if e.data_pretty %}<pre>{{ e.data_pretty }}</pre>{% endif %}
+          </div>
+        </details>
+      </div>
       {% endif %}
     </div>
   </li>

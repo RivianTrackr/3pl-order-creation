@@ -27,6 +27,7 @@ from ..config import (ROOT, Bootstrap, ConfigError, TplClient, any_ready_client,
                       missing_required, setting_values, shipping_overrides, status_list)
 from ..db import Database, client_missing, client_status, company_key, utcnow
 from .. import emails, stats, updates
+from . import explain
 from ..http import ApiError
 from ..skulist import SheetError, read_sheet
 from ..notify import Notifier
@@ -107,7 +108,7 @@ def create_app(boot: Bootstrap) -> FastAPI:
             values = {}
         tz = _zone(values.get("DISPLAY_TIMEZONE"))
 
-        def localtime(value: Optional[str], seconds: bool = False, short: bool = False) -> str:
+        def localtime(value: Optional[str], seconds: bool = False, short: bool = False, clock: bool = False) -> str:
             if not value:
                 return ""
             try:
@@ -119,10 +120,28 @@ def create_app(boot: Bootstrap) -> FastAPI:
             local = dt.astimezone(tz)
             if seconds:
                 return local.strftime("%-I:%M:%S %p")
+            if clock:
+                return local.strftime("%-I:%M %p")
             if short:   # tables: leave the year off for this year
                 same_year = local.year == datetime.now(tz).year
                 return local.strftime("%b %-d, %-I:%M %p" if same_year else "%b %-d, %Y")
             return local.strftime("%b %-d, %Y %-I:%M %p")
+
+        def day_label(value: Optional[str]) -> str:
+            """Today, Yesterday, or e.g. Monday, Oct 26, for grouping a timeline by day."""
+            if not value:
+                return ""
+            try:
+                dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            except ValueError:
+                return ""
+            day = (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(tz).date()
+            today = datetime.now(tz).date()
+            if day == today:
+                return "Today"
+            if day == today - timedelta(days=1):
+                return "Yesterday"
+            return day.strftime("%A, %b %-d" if day.year == today.year else "%A, %b %-d, %Y")
 
         flash = None
         if request.cookies.get(FLASH_COOKIE):
@@ -133,6 +152,11 @@ def create_app(boot: Bootstrap) -> FastAPI:
             "csrf": getattr(request.state, "csrf", ""),
             "flash": flash,
             "localtime": localtime,
+            "day_label": day_label,
+            "fixer_label": explain.fixer_label,
+            "category_label": explain.category_label,
+            "support": {"name": values.get("SUPPORT_NAME") or "", "email": values.get("SUPPORT_EMAIL") or ""},
+            "max_attempts": explain.MAX_ATTEMPTS,
             "tz_name": getattr(tz, "key", "UTC"),
             "state_labels": STATE_LABELS,
             "tracking_links": tracking_links,
@@ -518,9 +542,12 @@ def create_app(boot: Bootstrap) -> FastAPI:
             item = dict(row)
             if item.get("data"):
                 try:
-                    item["data_pretty"] = json.dumps(json.loads(item["data"]), indent=2)
+                    item["data_obj"] = json.loads(item["data"])
+                    item["data_pretty"] = json.dumps(item["data_obj"], indent=2)
                 except ValueError:
                     item["data_pretty"] = item["data"]
+                if not isinstance(item.get("data_obj"), dict):
+                    item["data_obj"] = {}
             if item.get("summary"):
                 try:
                     item["summary_obj"] = json.loads(item["summary"])
@@ -528,6 +555,32 @@ def create_app(boot: Bootstrap) -> FastAPI:
                     item["summary_obj"] = {}
             items.append(item)
         return items
+
+    def _explained(db: Database, rows):
+        """Events with plain-language wording and their PO's current status and client."""
+        items = _parse_data(rows)
+        views = db.po_views([e["po_id"] for e in items if e.get("po_id")])
+        for e in items:
+            e["x"] = explain.explain(e)
+            e["po"] = views.get(e.get("po_id"))
+            e["resolved"] = explain.resolved(e, e["po"])
+        return items
+
+    def _problem_summary(db: Database, days: int = 7):
+        """Problems in the last `days` days by kind: how many POs had one and how many still do."""
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+        events = _explained(db, db.list_events(2000, levels=("error", "warning"), hide=explain.REPEATS, since=since))
+        cards = {}
+        for e in events:
+            key = e["x"]["category"] or "other"
+            card = cards.setdefault(key, {"key": key, "events": 0, "pos": set(), "open": set()})
+            card["events"] += 1
+            if e.get("po_id"):
+                card["pos"].add(e["po_id"])
+                if e["resolved"] is False:
+                    card["open"].add(e["po_id"])
+        order = list(explain.CATEGORIES)
+        return sorted(cards.values(), key=lambda c: (-len(c["open"]), order.index(c["key"]))), events
 
     def _duration(run) -> str:
         if not run["finished_at"]:
@@ -537,12 +590,29 @@ def create_app(boot: Bootstrap) -> FastAPI:
 
     @app.get("/logs", response_class=HTMLResponse)
     def logs_page(request: Request, tab: str = "runs", status: str = "", kind: str = "", level: str = "",
-                  q: str = "", page: int = 1, show_quiet: bool = False, db: Database = Depends(get_db)):
+                  q: str = "", page: int = 1, show_quiet: bool = False, show: str = "", cat: str = "",
+                  db: Database = Depends(get_db)):
         page = max(page, 1)
         offset = (page - 1) * PAGE_SIZE
         q = q.strip()[:100]
+        summary = []
         if tab == "events":
-            rows = _parse_data(db.list_events(PAGE_SIZE + 1, offset, level=level or None, q=q or None))
+            if show not in ("problems", "important", "all"):
+                show = "problems" if level in ("error", "warning") else "important"
+            summary, recent_problems = _problem_summary(db)
+            if cat in explain.CATEGORIES:
+                show, page = "problems", 1
+                rows = [e for e in recent_problems if e["x"]["category"] == cat]
+                rows = [e for e in rows if not q or q.casefold() in json.dumps(
+                    [e.get("message"), e.get("reference"), e.get("po_id"), e.get("job_id")]).casefold()]
+                rows = rows[:PAGE_SIZE * 4]
+            else:
+                cat = ""
+                rows = _explained(db, db.list_events(
+                    PAGE_SIZE + 1, offset, q=q or None,
+                    levels=("error", "warning") if show == "problems" else (),
+                    hide_info=explain.ROUTINE if show == "important" else (),
+                    hide=explain.REPEATS if show != "all" else ()))
         elif tab == "emails":
             rows = [dict(r) for r in db.list_emails(PAGE_SIZE + 1, offset, status=status or None)]
         else:
@@ -551,8 +621,10 @@ def create_app(boot: Bootstrap) -> FastAPI:
                                             hide_empty=not show_quiet))
             for r in rows:
                 r["duration"] = _duration(r)
-        return render(request, db, "logs.html", tab=tab, rows=rows[:PAGE_SIZE], has_next=len(rows) > PAGE_SIZE,
-                      page=page, status=status, kind=kind, level=level, q=q, show_quiet=show_quiet,
+        many = PAGE_SIZE * 4 if cat else PAGE_SIZE
+        return render(request, db, "logs.html", tab=tab, rows=rows[:many], has_next=not cat and len(rows) > PAGE_SIZE,
+                      page=page, status=status, kind=kind, level=level, q=q, show_quiet=show_quiet, show=show,
+                      cat=cat, summary=summary,
                       retention=setting_values(db, box).get("LOG_RETENTION_DAYS"))
 
     @app.get("/logs/runs/{run_id}", response_class=HTMLResponse)
@@ -563,14 +635,14 @@ def create_app(boot: Bootstrap) -> FastAPI:
         run_item = _parse_data([run])[0]
         run_item["duration"] = _duration(run)
         return render(request, db, "logs_run.html", run=run_item, level=level,
-                      events=_parse_data(db.list_events(1000, run_id=run_id)),
+                      events=_explained(db, db.list_events(1000, run_id=run_id)),
                       emails=db.list_emails(200, run_id=run_id),
                       lines=db.log_lines(run_id, level.upper() or None))
 
     @app.get("/po/{po_id}", response_class=HTMLResponse)
     def po_detail(request: Request, po_id: int, db: Database = Depends(get_db)):
         record = db.get(po_id)
-        events = _parse_data(db.list_events(1000, po_id=po_id))
+        events = _explained(db, db.list_events(1000, po_id=po_id))
         if not record and not events:
             raise HTTPException(404, "No record of that purchase order.")
         client = db.po_view(po_id)

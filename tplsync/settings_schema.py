@@ -70,6 +70,10 @@ SETTINGS: Tuple[SettingDef, ...] = (
                help="This admin's web address, e.g. https://3pl.ipromo.com. Emails link to it."),
     SettingDef("ALERT_EMAIL_TO", "Alert recipients", "alerts", required=True,
                help="Who gets alerts about orders that need attention. Comma-separated."),
+    SettingDef("SUPPORT_NAME", "Support contact name", "alerts",
+               help="Who people should ask for help, e.g. Jose. Shown on problems in the Logs."),
+    SettingDef("SUPPORT_EMAIL", "Support contact email", "alerts", "email",
+               help="Adds an \u201cEmail for help\u201d button to each problem, with the PO's details filled in."),
 
     SettingDef("PAUSED", "Pause processing", "behaviour", "bool", default="false",
                help="Scheduled runs do nothing while paused."),
