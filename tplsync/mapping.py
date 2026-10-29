@@ -124,6 +124,18 @@ def _product_above(items: List[dict], index: int) -> Optional[dict]:
     return None
 
 
+_HEADING = re.compile(r"\*|on\s*demand|inventory", re.IGNORECASE)
+
+
+def _plain_text(line: dict) -> bool:
+    """A typed line of text with no quantity, SKU or Syncore type behind it: a product name, or a colour typed
+    under one ("Slater Bag", then "Black"). Headings, SKU lines and "Color: ..." lines don't count."""
+    text = clean_text(line.get("description"))
+    return bool(text) and not str(line.get("sku") or "").strip() and _qty(line.get("quantity")) <= 0 \
+        and str(line.get("type") or "").replace(" ", "").casefold() not in DETAIL_TYPES and not _names_sku(line) \
+        and not _INFO_LINE.match(text) and not _DETAIL_TEXT.match(text) and not _HEADING.search(text)
+
+
 def _text_details(items: List[dict], index: int) -> List[str]:
     """Colour/size texts right around the SKU line at items[index] that carry no quantity of their own:
     "Color: White" / "Size: XL" comment lines, or Color/Size lines."""
@@ -201,6 +213,12 @@ def on_demand_items(po: dict, sku_pattern: str, allowed=frozenset(), exempt=froz
             else:
                 label = clean_text(v.get("description"))      # e.g. a "Black" line after the SKU line
             variants.append((label, qty))
+        above = next((i for i, li in enumerate(items) if li is product), 0) - 1
+        if product is not line and above >= 0 and _plain_text(product) and _plain_text(items[above]):
+            # "Slater Bag" then "Black" then the SKU line: the product is the first line, the second its colour.
+            colour = clean_text(product.get("description"))
+            product = items[above]
+            variants = [(" / ".join(x for x in (colour, label) if x), qty) for label, qty in variants]
         code = str(product.get("sku") or "").strip() if product is not line else ""
         result.append({"sku": d["sku"], "product": clean_text(product.get("description")) if product is not line
                        or not (tagged_sku(line) or own_sku(line)) else "",
