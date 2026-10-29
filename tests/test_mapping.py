@@ -388,7 +388,7 @@ def test_sku_written_after_the_size_with_the_quantity_on_the_same_line():
         (5, 0, "Comment", "", 2, "Size X-Large: SKU PHU015OD-BLACK-X-Large"),
         (6, 0, "Comment", "", 0, ""),
         (7, 0, "Comment", "", 0, "Slater Bag"),
-        (8, 0, "Comment", "", 0, "Color: Black"),
+        (8, 0, "Comment", "", 0, "Black"),
         (9, 0, "Comment", "", 3, "PHU125OD"),
     )
     assert dict(order_lines(po, "INV|OD", on_demand=True)) == {
@@ -432,3 +432,16 @@ def test_product_line_with_a_quantity_is_not_read_twice():
         (4, 0, "Comment", "", 0, "SKU: BAL528INV-59838"),
     )
     assert dict(mapping.order_lines(po, "INV|OD")) == {"ABC123INV-L": 4, "BAL528INV-59838": 2}
+
+
+def test_colour_typed_under_the_product_name_keeps_the_name():
+    """77993-2: "Slater Bag" then "Black" then "SKU: ..." showed up as "Black" in the warehouse note."""
+    from tplsync.mapping import on_demand_items, on_demand_note
+    po = _po(
+        (1, 0, "Comment", "", 0, "***ON DEMAND FROM JIT***"),
+        (2, 0, "Comment", "", 0, "Slater Bag"),
+        (3, 0, "Comment", "", 0, "Black"),
+        (4, 0, "Comment", "", 3, "SKU: PHU125OD"),
+    )
+    assert on_demand_note(on_demand_items(po, "INV|OD"), "ONDEMAND123") == (
+        "ON DEMAND (sent as ONDEMAND123): Slater Bag - Black x3 [PO SKU PHU125OD]")
