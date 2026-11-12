@@ -110,7 +110,7 @@ def _skipped_hint(reason: str) -> Optional[str]:
     if reason.startswith("vendor is"):
         return "It isn't for the warehouse's vendor, so it doesn't go to 3PL Central."
     if "went back to" in reason:
-        return "If it should still go out, set the job back to Submitted in Syncore and click Process on the PO."
+        return "If it should still go out, set the job type back to 3PL Fulfillment in Syncore and click Process on the PO."
     return None
 
 
@@ -166,10 +166,10 @@ def explain(e: dict) -> Dict[str, Optional[str]]:
     elif event == "po.held":
         reason = re.sub(r"^On hold:\s*", "", message)
         paused = "paused" in reason
-        out.update(title="On hold: client paused" if paused else "On hold until the job is submitted",
+        out.update(title="On hold: client paused" if paused else "On hold until the job is a 3PL job",
                    what=_sentence(reason),
                    next=("Nothing to do. It goes out on its own once the client is turned back on." if paused else
-                         "Nothing to do. It goes out on its own once the job is Submitted in Syncore."))
+                         "Nothing to do. It goes out on its own once the job type is 3PL Fulfillment in Syncore."))
     elif event == "order.left_open":
         out.update(title="Order left Open: not enough stock", category="short_stock", fixer="warehouse",
                    next="It's completed on its own once the warehouse has the stock. Nothing to do unless the "

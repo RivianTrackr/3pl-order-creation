@@ -1,4 +1,4 @@
-"""Dashboard trends: orders sent per day, and how long POs take from 'job submitted' to 'sent'."""
+"""Dashboard trends: orders sent per day, and how long POs take from 'job is a 3PL job' to 'sent'."""
 
 import math
 from datetime import datetime, timedelta, timezone

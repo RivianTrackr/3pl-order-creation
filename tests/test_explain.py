@@ -48,9 +48,10 @@ def test_unknown_error_is_a_bug_for_support():
 
 
 def test_info_events_get_plain_titles_and_hints():
-    held = explain.explain(_event("po.held", "On hold: Syncore job 1 is WIP; it's sent once the job is Submitted",
+    held = explain.explain(_event("po.held", "On hold: Syncore job 1 is job type Standard Promo Sales; it's sent once the job type is "
+                                  "3PL Fulfillment",
                                   level="info"))
-    assert held["title"] == "On hold until the job is submitted" and held["next"].startswith("Nothing to do")
+    assert held["title"] == "On hold until the job is a 3PL job" and held["next"].startswith("Nothing to do")
     skipped = explain.explain(_event("po.skipped", "Skipped: client Acme isn't set up for 3PL Central (missing x)",
                                      level="info"))
     assert skipped["what"].startswith("Client Acme") and "Process" in skipped["next"]

@@ -86,3 +86,25 @@ class SyncoreClient:
             if int(po.get("id", 0)) == int(po_id):
                 return po
         return None
+
+
+# Syncore's Orders API docs aren't public, so the job type is read from any of the names it could come under,
+# as text or as an object with a name.
+JOB_TYPE_KEYS = ("job_type", "jobType", "JobType", "job_type_name", "type")
+
+
+class JobTypeMissing(RuntimeError):
+    """The Syncore job has none of the fields the job type is read from."""
+
+
+def job_type(job: dict) -> str:
+    """The job's Job Type, e.g. "3PL Fulfillment" ("" when the field is there but empty)."""
+    for key in JOB_TYPE_KEYS:
+        if key not in job:
+            continue
+        value = job[key]
+        if isinstance(value, dict):
+            value = value.get("name") or value.get("description") or value.get("value") or ""
+        return " ".join(str(value or "").split())
+    raise JobTypeMissing("The Syncore job has no job type field, so this tool can't tell if it's a 3PL job. "
+                         f"Fields on the job: {', '.join(sorted(map(str, job))) or '(none)'}.")

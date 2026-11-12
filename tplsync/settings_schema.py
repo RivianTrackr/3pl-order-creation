@@ -33,9 +33,10 @@ SETTINGS: Tuple[SettingDef, ...] = (
     SettingDef("SKU_PATTERN", "SKU pattern", "syncore", default="INV|OD", required=True,
                help="Regular expression. PO lines whose SKU matches are included (case-sensitive). Older SKUs "
                     "without INV or OD go on the Allowed SKUs page."),
-    SettingDef("SYNCORE_JOB_STATUSES", "Job statuses to send", "syncore", default="Submitted",
-               help="A PO is only sent once its Syncore job is in one of these statuses (comma-separated). "
-                    "In any other status (e.g. Pending or WIP) it's held and checked again every run."),
+    SettingDef("SYNCORE_JOB_TYPES", "Job types to send", "syncore", default="3PL Fulfillment",
+               help="A PO is only sent once its Syncore job has one of these Job Types (comma-separated). "
+                    "With any other job type it's held and checked again every run, so changing the job type "
+                    "in Syncore sends it."),
     SettingDef("SYNCORE_JOB_STATUSES_IGNORE", "Job statuses to ignore", "syncore", default="Delivered, Completed",
                help="Jobs in these statuses are already done: their POs are skipped and not checked again "
                     "(comma-separated)."),
