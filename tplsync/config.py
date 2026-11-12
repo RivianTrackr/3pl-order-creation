@@ -109,7 +109,7 @@ class Settings:
     backup_keep_days: int = 14
     paused: bool = False
     display_timezone: str = "America/New_York"
-    job_statuses: Tuple[str, ...] = ("submitted",)
+    job_types: Tuple[str, ...] = ("3pl fulfillment",)
     ignore_job_statuses: Tuple[str, ...] = ("delivered", "completed")
     emails: Dict[str, bool] = field(default_factory=lambda: dict(EMAIL_DEFAULTS))
     admin_url: str = ""
@@ -160,7 +160,7 @@ def shipping_overrides(db: Database) -> Dict[str, dict]:
 
 
 def status_list(value: Optional[str]) -> Tuple[str, ...]:
-    """"Submitted, WIP" -> ("submitted", "wip")."""
+    """"Delivered, Completed" -> ("delivered", "completed"). Also used for job types."""
     return tuple(s.strip().casefold() for s in (value or "").split(",") if s.strip())
 
 
@@ -214,7 +214,7 @@ def load_settings(db: Database, box: SecretBox, db_path: str, require_complete: 
                 for kind, on in EMAIL_DEFAULTS.items()},
         admin_url=v["ADMIN_URL"] or "",
         on_demand_sku=(v["ON_DEMAND_SKU"] or "").strip(),
-        job_statuses=status_list(v["SYNCORE_JOB_STATUSES"]),
+        job_types=status_list(v["SYNCORE_JOB_TYPES"]),
         ignore_job_statuses=status_list(v["SYNCORE_JOB_STATUSES_IGNORE"]),
         clients=clients,
         shipping_map=shipping_map,

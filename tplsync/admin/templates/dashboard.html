@@ -74,7 +74,7 @@
   <div class="trend-body">
     <dl class="trend-figures">
       <div><dt>Orders sent</dt><dd>{{ "{:,}".format(trend.total) }}</dd></div>
-      <div><dt>Typical time from Submitted to sent</dt><dd>{{ trend.typical_wait }}</dd>
+      <div><dt>Typical time from 3PL job to sent</dt><dd>{{ trend.typical_wait }}</dd>
         {% if trend.waits_measured %}<p class="cell-meta">median of {{ trend.waits_measured }} PO{{ '' if trend.waits_measured == 1 else 's' }}</p>{% endif %}</div>
       <div><dt>Shipped</dt><dd>{{ "{:,}".format(trend.shipped) }}</dd></div>
     </dl>

@@ -67,8 +67,9 @@ def _item(row, detail: str) -> Item:
 
 
 def _hold_reason(reason: Optional[str]) -> str:
-    """"Syncore job 77563 is WIP; it's sent once the job is Submitted" -> "Job 77563 is WIP"."""
-    match = re.match(r"Syncore job (\d+) is ([^;]+);", reason or "")
+    """"Syncore job 77563 is job type Standard Promo Sales; it's sent once ..." -> "Job 77563 is Standard Promo
+    Sales"."""
+    match = re.match(r"Syncore job (\d+) is (?:job type )?([^;]+);", reason or "")
     return f"Job {match.group(1)} is {match.group(2)}" if match else (reason or "")
 
 
@@ -162,7 +163,7 @@ def render_text(s: Summary) -> List[str]:
         lines.extend(["", f"RUNS FAILING: {s.failed_runs} of {s.runs} scheduled runs failed in the last 24 hours"])
         lines.extend(f"  {times}x  {error}" for error, times in s.run_errors)
     section("WAITING FOR STOCK", s.open_orders)
-    section("ON HOLD UNTIL THE JOB IS SUBMITTED", s.held,
+    section("ON HOLD UNTIL THE JOB IS A 3PL JOB", s.held,
             f"Not shown: {s.held_not_tested} on hold for clients that aren't active." if s.held_not_tested else "")
     if not (s.problems or s.changed or s.open_orders or s.held or s.failed_runs):
         lines += ["", "Nothing is stuck: no problems, nothing waiting for stock and nothing on hold."]
@@ -224,7 +225,7 @@ def render_html(s: Summary) -> str:
         note = (f"{s.held_not_tested} more on hold for clients that aren't active are not shown."
                 if s.held_not_tested else "")
         content = E.table(["Reference", "Client", "Why"], po_rows(s.held)) if s.held else ""
-        body.append(E.card("On hold until the job is submitted", content, "info", len(s.held) or None, note))
+        body.append(E.card("On hold until the job is a 3PL job", content, "info", len(s.held) or None, note))
     if not (s.problems or s.changed or s.failed_runs or s.open_orders or s.held):
         body.append(E.card("Nothing is stuck", E.message("No problems, nothing waiting for stock and nothing on hold "
                                                           "for active clients."), "success"))

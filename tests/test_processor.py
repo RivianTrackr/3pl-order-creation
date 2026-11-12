@@ -32,10 +32,11 @@ def make_po(po_id=900, supplier="Example Supplier LLC", sku="SHIRT-INV", qty=10,
 
 
 class FakeSyncore:
-    def __init__(self, pos, client_id=1213, job_status="Submitted"):
+    def __init__(self, pos, client_id=1213, job_status="Submitted", job_type="3PL Fulfillment"):
         self.pos = {p["id"]: p for p in pos}
         self.client_id = client_id
         self.job_status = job_status
+        self.job_type = job_type
 
     def search_purchase_orders(self, created_from, modified_from):
         return [{"id": p["id"], "job_number": p["job_number"], "last_modified_date": p["last_modified_date"]}
@@ -45,7 +46,7 @@ class FakeSyncore:
         return self.pos.get(po_id)
 
     def get_job(self, job_id):
-        return {"id": job_id, "status": self.job_status,
+        return {"id": job_id, "status": self.job_status, "job_type": self.job_type,
                 "client": {"id": self.client_id, "business_name": "Client Inc", "name": "Pat Buyer"}}
 
     def get_contact(self, contact_id):
@@ -346,25 +347,25 @@ def test_dismissed_po_is_not_picked_up_again(env):
     assert tpl.created == [] and db.get(900)["state"] == "dismissed"
 
 
-def test_po_waits_until_its_job_is_submitted(env):
+def test_po_waits_until_its_job_is_a_3pl_job(env):
     proc, db, syncore, tpl, notifier = env([make_po()])
-    syncore.job_status = "Pending"
+    syncore.job_type = "Standard Promo Sales"
     proc.run(NOW)
     db.upsert(900, 12345, first_seen=(NOW - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%S"))
     calls, po_reads = [], []
     real_get_job, real_get_po = syncore.get_job, syncore.get_purchase_order
     syncore.get_job = lambda job_id: calls.append(job_id) or real_get_job(job_id)
     syncore.get_purchase_order = lambda *a, **kw: po_reads.append(a) or real_get_po(*a, **kw)
-    proc.run(NOW)   # still Pending: checked again, but no new timeline entry and nothing sent
+    proc.run(NOW)   # still not a 3PL job: checked again, but no new timeline entry and nothing sent
     assert calls == [12345] and po_reads == []        # only the job is looked at, not the whole PO
     assert tpl.created == [] and notifier.sent == []
     row = db.get(900)
-    assert row["state"] == "held" and "Pending" in row["skip_reason"]
+    assert row["state"] == "held" and "Standard Promo Sales" in row["skip_reason"]
     events = [e["event"] for e in db.list_events(po_id=900)]
     assert events.count("po.held") == 1 and events.count("po.loaded") == 1
 
-    # The job is submitted; the PO itself didn't change and has dropped out of the search window.
-    syncore.job_status = "Submitted"
+    # The job type is changed to 3PL Fulfillment; the PO itself didn't change and has dropped out of the search window.
+    syncore.job_type = "3PL Fulfillment"
     syncore.search_purchase_orders = lambda created_from, modified_from: []
     proc.run(NOW)
     assert len(tpl.created) == 1 and db.get(900)["state"] == "done"
@@ -373,13 +374,13 @@ def test_po_waits_until_its_job_is_submitted(env):
 def test_held_po_that_is_already_in_3pl_central_is_skipped(env):
     proc, db, syncore, tpl, _ = env([make_po()])
     tpl.existing["12345-3"] = 4242                    # entered by hand by the CSR team
-    syncore.job_status = "WIP"
+    syncore.job_type = "Standard Promo Sales"
     proc.run(NOW)
     row = db.get(900)
     assert tpl.created == [] and row["state"] == "skipped" and "order 4242" in row["skip_reason"]
     assert "po.held" not in [e["event"] for e in db.list_events(po_id=900)]
 
-    syncore.job_status = "Submitted"                  # not picked up again when the job moves on
+    syncore.job_type = "3PL Fulfillment"                  # not picked up again when the job moves on
     proc.run(NOW)
     assert tpl.created == [] and db.get(900)["state"] == "skipped"
 
@@ -410,7 +411,7 @@ def test_po_on_a_delivered_job_is_skipped_not_held(env):
 
 def test_held_po_is_dropped_when_its_job_goes_straight_to_delivered(env):
     proc, db, syncore, tpl, _ = env([make_po(po_id=901)])
-    syncore.job_status = "WIP"
+    syncore.job_type = "Standard Promo Sales"
     proc.run(NOW)
     assert db.get(901)["state"] == "held"
     db.upsert(901, 12345, first_seen=(NOW - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%S"))
@@ -419,13 +420,48 @@ def test_held_po_is_dropped_when_its_job_goes_straight_to_delivered(env):
     assert db.get(901)["state"] == "skipped" and tpl.created == []
 
 
-def test_job_statuses_setting_controls_what_is_sent(env):
+def test_job_types_setting_controls_what_is_sent(env):
     proc, db, syncore, tpl, _ = env([make_po()])
-    proc.s.job_statuses = ("submitted",)
-    syncore.job_status = "WIP"
+    proc.s.job_types = ("3pl fulfillment",)
+    syncore.job_type = "Standard Promo Sales"
     proc.run(NOW)
     assert tpl.created == [] and db.get(900)["state"] == "held"
-    assert "sent once the job is Submitted" in db.get(900)["skip_reason"]
+    assert "sent once the job type is 3PL Fulfillment" in db.get(900)["skip_reason"]
+
+    proc.s.job_types = ("3pl fulfillment", "standard promo sales")
+    syncore.pos[900]["last_modified_date"] = "2026-09-17 12:30:00"
+    proc.run(NOW)
+    assert len(tpl.created) == 1 and db.get(900)["state"] == "done"
+
+
+def test_job_status_doesnt_matter_for_a_3pl_job(env):
+    proc, db, syncore, tpl, _ = env([make_po()], )
+    syncore.job_status, syncore.job_type = "Pending", "3pl  fulfillment"   # any status, case and spacing
+    proc.run(NOW)
+    assert len(tpl.created) == 1 and db.get(900)["state"] == "done"
+
+
+def test_job_type_given_as_an_object_is_read(env):
+    proc, db, syncore, tpl, _ = env([make_po()])
+    real_get_job = syncore.get_job
+
+    def get_job(job_id):
+        job = real_get_job(job_id)
+        job.pop("job_type")
+        return {**job, "type": {"id": 7, "name": "3PL Fulfillment"}}
+    syncore.get_job = get_job
+    proc.run(NOW)
+    assert len(tpl.created) == 1
+
+
+def test_job_without_a_job_type_field_is_an_error_not_a_silent_hold(env):
+    proc, db, syncore, tpl, notifier = env([make_po()])
+    real_get_job = syncore.get_job
+    syncore.get_job = lambda job_id: {k: v for k, v in real_get_job(job_id).items() if k != "job_type"}
+    proc.run(NOW)
+    row = db.get(900)
+    assert tpl.created == [] and row["state"] == "error"
+    assert "no job type field" in row["last_error"] and "client, id, status" in row["last_error"]
 
 
 def test_alert_emails_can_be_turned_off(env):
@@ -446,28 +482,28 @@ def test_alert_emails_can_be_turned_off(env):
     assert len(notifier.sent) == 1
 
 
-def test_po_is_ignored_when_its_job_goes_back_from_submitted_to_wip(env):
+def test_po_is_ignored_when_its_job_type_is_changed_away_from_3pl(env):
     po = make_po(sku="MISSING-INV")
     proc, db, syncore, tpl, notifier = env([po])
-    syncore.job_status = "Submitted"
-    proc.run(NOW)                       # seen while Submitted, but the SKU stops it
+    syncore.job_type = "3PL Fulfillment"
+    proc.run(NOW)                       # seen as a 3PL job, but the SKU stops it
     assert db.get(900)["state"] == "error" and db.get(900)["job_submitted_at"]
 
-    syncore.job_status = "WIP"          # the team pulled the job back
+    syncore.job_type = "Standard Promo Sales"          # the team pulled the job back
     po["line_items"][0]["sku"] = "SHIRT-INV"
     proc.run(NOW)
     row = db.get(900)
-    assert row["state"] == "skipped" and "went back to WIP after being Submitted" in row["skip_reason"]
+    assert row["state"] == "skipped" and "changed to job type Standard Promo Sales after being 3PL Fulfillment" in row["skip_reason"]
     assert tpl.created == []
 
-    syncore.job_status = "Submitted"    # skipped POs aren't re-checked, so nothing is sent
+    syncore.job_type = "3PL Fulfillment"    # skipped POs aren't re-checked, so nothing is sent
     proc.run(NOW)
     assert tpl.created == []
 
 
-def test_wip_job_that_was_never_submitted_is_still_held(env):
+def test_job_that_was_never_a_3pl_job_is_still_held(env):
     proc, db, syncore, tpl, _ = env([make_po()])
-    syncore.job_status = "WIP"
+    syncore.job_type = "Standard Promo Sales"
     proc.run(NOW)
     assert db.get(900)["state"] == "held" and not db.get(900)["job_submitted_at"]
 
@@ -495,7 +531,7 @@ def test_allowed_sku_is_sent_for_its_own_client_only(env):
 
 def test_held_and_skipped_pos_record_their_reference_and_client(env):
     proc, db, syncore, tpl, _ = env([make_po(po_id=901), make_po(po_id=902, sku="PLAIN-123")])
-    syncore.job_status = "WIP"
+    syncore.job_type = "Standard Promo Sales"
     proc.run(NOW)
     held, skipped = db.get(901), db.get(902)
     assert held["state"] == "held" and held["reference"] == "12345-3"

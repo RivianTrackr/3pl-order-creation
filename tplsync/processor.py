@@ -33,7 +33,7 @@ from . import emails
 from .db import Database, client_missing, utcnow
 from .http import ApiError
 from .notify import Notifier
-from .syncore import SyncoreClient
+from .syncore import JobTypeMissing, SyncoreClient, job_type
 from .tpl import TplCentralClient
 
 log = logging.getLogger(__name__)
@@ -58,9 +58,9 @@ class SkipPO(Exception):
     """The PO doesn't belong in 3PL Central."""
 
 
-def _or_list(statuses) -> str:
-    names = {"wip": "WIP"}
-    labels = [names.get(s, s.title()) for s in statuses] or ["(none set)"]
+def _or_list(values) -> str:
+    names = {"3pl fulfillment": "3PL Fulfillment"}
+    labels = [names.get(s, s.title()) for s in values] or ["(none set)"]
     return labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " or " + labels[-1]
 
 
@@ -286,7 +286,7 @@ class Processor:
 
         if not force and rec is not None and rec["state"] == "held" and rec["last_modified"] == last_modified \
                 and self._still_held(rec, job_id):
-            self.stats["held"] += 1       # unchanged PO, job still not submitted: nothing else to fetch
+            self.stats["held"] += 1       # unchanged PO, job still not a 3PL job: nothing else to fetch
             return
 
         if not force and not self.s.dry_run and not self._settled(rec, po_id, job_id, last_modified, now):
@@ -295,7 +295,7 @@ class Processor:
         try:
             self._process(po_id, job_id, last_modified)
         except (HoldPO, ClientNotReady) as exc:
-            # Waiting on the job (not submitted yet) or on the client (paused on the Clients page): the PO goes
+            # Waiting on the job (not a 3PL job type yet) or on the client (paused on the Clients page): the PO goes
             # through on its own once that changes, so it's on hold rather than a problem.
             paused = isinstance(exc, ClientNotReady)
             reason = str(exc.args[0])
@@ -474,12 +474,17 @@ class Processor:
 
     def _still_held(self, rec, job_id: int) -> bool:
         """Whether a held PO still has to wait: its client is paused (checked here, no Syncore call), or its job
-        is in a status that waits (one cheap job lookup instead of re-reading the whole PO). Anything else goes
+        isn't a job type that's sent (one cheap job lookup instead of re-reading the whole PO). Anything else goes
         through the full check."""
         if self._client_paused(rec["client_id"]):
             return True
-        status = str(self.syncore.get_job(job_id).get("status") or "").casefold()
-        return status not in self.s.job_statuses and status not in self.s.ignore_job_statuses
+        job = self.syncore.get_job(job_id)
+        status = str(job.get("status") or "").casefold()
+        try:
+            kind = job_type(job).casefold()
+        except JobTypeMissing:
+            return False                  # the full check reports it
+        return kind not in self.s.job_types and status not in self.s.ignore_job_statuses
 
     def _settled(self, rec, po_id: int, job_id: int, last_modified: Optional[str], now: datetime) -> bool:
         in_progress = rec is not None and rec["state"] in ("processing", "error")
@@ -558,19 +563,21 @@ class Processor:
             self.db.upsert(po_id, job_id, reference=ref, client_id=group_id or None,
                            client_name=group_name or client_label)
         status = str(job.get("status") or "")
-        if order_id is None and status.casefold() in self.s.ignore_job_statuses \
-                and status.casefold() not in self.s.job_statuses:
+        if order_id is None and status.casefold() in self.s.ignore_job_statuses:
             raise SkipPO(f"Syncore job {job_id} is {status}, so it's already done", ref, {"job_status": status})
-        if order_id is None and status.casefold() in self.s.job_statuses:
+        kind = job_type(job) if order_id is None else ""
+        ready = kind.casefold() in self.s.job_types
+        if order_id is None and ready:
             if not dry and not (rec and rec["job_submitted_at"]):
                 self.db.upsert(po_id, job_id, job_submitted_at=utcnow())
         elif order_id is None and rec is not None and rec["job_submitted_at"]:
-            # The job was ready to send, then moved back (e.g. Submitted -> WIP): the team pulled it, so leave it.
-            raise SkipPO(f"Syncore job {job_id} went back to {status or 'no status'} after being "
-                         f"{_or_list(self.s.job_statuses)}, so it's ignored", ref, {"job_status": status})
-        if order_id is None and status.casefold() not in self.s.job_statuses:
-            raise HoldPO(f"Syncore job {job_id} is {status or 'without a status'}; it's sent once the job is "
-                         f"{_or_list(self.s.job_statuses)}", ref, {"job_status": status})
+            # The job was a 3PL job, then its type was changed before the PO was sent: the team pulled it.
+            raise SkipPO(f"Syncore job {job_id} was changed to job type {kind or '(none)'} after being "
+                         f"{_or_list(self.s.job_types)}, so it's ignored", ref,
+                         {"job_type": kind, "job_status": status})
+        if order_id is None and not ready:
+            raise HoldPO(f"Syncore job {job_id} is job type {kind or '(none)'}; it's sent once the job type is "
+                         f"{_or_list(self.s.job_types)}", ref, {"job_type": kind, "job_status": status})
         if not group_id:
             raise SkipPO(f"Syncore client {client_id} ({client_label}) isn't in a client group, so it can't be "
                          f"matched to a 3PL Central client", ref, {"syncore_client": client_id})

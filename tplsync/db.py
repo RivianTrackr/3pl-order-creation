@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     attempts       INTEGER NOT NULL DEFAULT 0,
     last_error     TEXT,
     alerted_error  TEXT,
-    job_submitted_at TEXT,          -- when this tool first saw the PO's job in a "send" status
+    job_submitted_at TEXT,          -- when this tool first saw the PO's job with a "send" job type
     client_name    TEXT,            -- the Syncore client group's name, for display
     sent_snapshot  TEXT,            -- JSON: lines, Ship Via and ship-to as sent to 3PL Central
     changed_at     TEXT,            -- set when the PO changed in Syncore after it was sent (cleared when reviewed)
